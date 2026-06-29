@@ -183,11 +183,15 @@ export const api = {
     return response.blob();
   },
 
-  exportReport: async (tables: ExportOptions[], regression?: { analysis: RegressionAnalysis; cutoff: number; labels: Record<string, string> }) => {
+  exportReport: async (
+    tables: ExportOptions[],
+    regression?: { analysis: RegressionAnalysis; cutoff: number; labels: Record<string, string> },
+    correlation?: { result: unknown; include_matrix: boolean; pairs: unknown[] },
+  ) => {
     const response = await fetch("/api/export/report.docx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tables: tables.map(buildExportBody), regression }),
+      body: JSON.stringify({ tables: tables.map(buildExportBody), regression, correlation }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: `Ошибка сервера ${response.status}` }));

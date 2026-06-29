@@ -17,7 +17,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.enum.section import WD_ORIENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Mm, Pt
+from docx.shared import Inches, Mm, Pt
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -88,9 +88,25 @@ class RegressionRequest(BaseModel):
     confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0)
 
 
+class CorrelationPairData(BaseModel):
+    row: str
+    col: str
+    x_values: list[float | None]
+    y_values: list[float | None]
+    x_label: str = ""
+    y_label: str = ""
+
+
+class CorrelationReportSection(BaseModel):
+    result: dict[str, Any]
+    include_matrix: bool = True
+    pairs: list[CorrelationPairData] = []
+
+
 class ReportExportRequest(BaseModel):
     tables: list[ExportRequest] = []
     regression: dict[str, Any] | None = None
+    correlation: CorrelationReportSection | None = None
 
 
 def clean_scalar(value: Any) -> Any:
@@ -859,8 +875,16 @@ class ScatterRequest(BaseModel):
 
 
 @app.post("/api/plot/scatter")
-def scatter_plot(request: ScatterRequest) -> Response:
-    import io
+def _generate_scatter_bytes(
+    x_values: list[float | None],
+    y_values: list[float | None],
+    x_label: str,
+    y_label: str,
+    r: float | None,
+    stars: str,
+    method: str,
+    dpi: int = 324,
+) -> bytes:
     import warnings
     import matplotlib
     matplotlib.use("Agg")
@@ -869,17 +893,19 @@ def scatter_plot(request: ScatterRequest) -> Response:
 
     pairs = [
         (x, y)
-        for x, y in zip(request.x_values, request.y_values)
-        if x is not None and y is not None and not (isinstance(x, float) and x != x) and not (isinstance(y, float) and y != y)
+        for x, y in zip(x_values, y_values)
+        if x is not None and y is not None
+        and not (isinstance(x, float) and x != x)
+        and not (isinstance(y, float) and y != y)
     ]
     if len(pairs) < 3:
-        raise HTTPException(400, "Недостаточно данных для графика")
+        raise ValueError("Недостаточно данных для графика")
 
     xs = [p[0] for p in pairs]
     ys = [p[1] for p in pairs]
 
     sns.set_theme(style="whitegrid", font_scale=0.9)
-    fig, ax = plt.subplots(figsize=(4.2, 3.8), dpi=324)
+    fig, ax = plt.subplots(figsize=(4.2, 3.8), dpi=dpi)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -890,15 +916,13 @@ def scatter_plot(request: ScatterRequest) -> Response:
             ci=95,
         )
 
-    r_val = f"r = {request.r:.3f}" if request.r is not None else ""
-    stars = request.stars or ""
-    method_label = "Пирсон" if request.method == "pearson" else "Спирмен"
+    method_label = "Пирсон" if method == "pearson" else "Спирмен"
     title_parts = [method_label]
-    if r_val:
-        title_parts.append(f"{r_val}{stars}")
+    if r is not None:
+        title_parts.append(f"r = {r:.3f}{stars or ''}")
     ax.set_title("  ".join(title_parts), fontsize=9, pad=6, color="#344054")
-    ax.set_xlabel(request.x_label or "X", fontsize=8, color="#667085")
-    ax.set_ylabel(request.y_label or "Y", fontsize=8, color="#667085")
+    ax.set_xlabel(x_label or "X", fontsize=8, color="#667085")
+    ax.set_ylabel(y_label or "Y", fontsize=8, color="#667085")
     ax.tick_params(labelsize=7)
     ax.grid(True, alpha=0.35, linewidth=0.5)
     fig.tight_layout(pad=1.0)
@@ -907,8 +931,103 @@ def scatter_plot(request: ScatterRequest) -> Response:
     fig.savefig(buf, format="png", bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
+    return buf.read()
 
-    return Response(content=buf.read(), media_type="image/png")
+
+def scatter_plot(request: ScatterRequest) -> Response:
+    try:
+        data = _generate_scatter_bytes(
+            request.x_values, request.y_values,
+            request.x_label, request.y_label,
+            request.r, request.stars or "", request.method,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return Response(content=data, media_type="image/png")
+
+
+def _append_correlation_block(document: Document, corr: CorrelationReportSection) -> None:
+    result = corr.result
+    variables: list[str] = result["variables"]
+    labels: dict[str, str] = result.get("labels", {})
+    matrix: dict[str, dict[str, Any]] = result.get("matrix", {})
+    method: str = result.get("method", "spearman")
+    n: int = result.get("n", 0)
+    method_label = "Пирсон (r)" if method == "pearson" else "Спирмен (ρ)"
+    symbol = "r" if method == "pearson" else "ρ"
+
+    h = document.add_paragraph()
+    run = h.add_run("Корреляционный анализ")
+    _apply_tnr(run, 14, bold=True)
+    h.paragraph_format.space_before = Pt(18)
+    h.paragraph_format.space_after = Pt(4)
+
+    meta = document.add_paragraph()
+    _apply_tnr(meta.add_run(f"Метод: {method_label}. Включено наблюдений: {n}."), 11)
+    meta.paragraph_format.space_after = Pt(10)
+
+    if corr.include_matrix and variables:
+        n_vars = len(variables)
+        tbl = document.add_table(rows=n_vars + 1, cols=n_vars + 1)
+        tbl.style = "Table Grid"
+
+        hdr_cells = tbl.rows[0].cells
+        _apply_tnr(hdr_cells[0].paragraphs[0].add_run(""), 9)
+        for j, var in enumerate(variables):
+            p = hdr_cells[j + 1].paragraphs[0]
+            _apply_tnr(p.add_run(labels.get(var, var)), 9, bold=True)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        for i, row_var in enumerate(variables):
+            row_cells = tbl.rows[i + 1].cells
+            lp = row_cells[0].paragraphs[0]
+            _apply_tnr(lp.add_run(labels.get(row_var, row_var)), 9, bold=True)
+            for j, col_var in enumerate(variables):
+                p = row_cells[j + 1].paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                if row_var == col_var:
+                    _apply_tnr(p.add_run("—"), 9)
+                else:
+                    cell_data = matrix.get(row_var, {}).get(col_var, {})
+                    r_val = cell_data.get("r")
+                    stars = cell_data.get("stars", "")
+                    text = f"{r_val:.3f}{stars}" if r_val is not None else "—"
+                    _apply_tnr(p.add_run(text), 9)
+
+        foot = document.add_paragraph()
+        _apply_tnr(foot.add_run(f"* p<0,05  ** p<0,01  *** p<0,001  ({symbol} — коэффициент корреляции)"), 9)
+        foot.paragraph_format.space_before = Pt(4)
+        foot.paragraph_format.space_after = Pt(12)
+
+    if corr.pairs:
+        sh = document.add_paragraph()
+        _apply_tnr(sh.add_run("Диаграммы рассеяния"), 12, bold=True)
+        sh.paragraph_format.space_before = Pt(10)
+        sh.paragraph_format.space_after = Pt(6)
+
+        for pair in corr.pairs:
+            cell_data = matrix.get(pair.row, {}).get(pair.col, {})
+            r_val = cell_data.get("r")
+            stars = cell_data.get("stars", "")
+            try:
+                png = _generate_scatter_bytes(
+                    pair.x_values, pair.y_values,
+                    pair.x_label or pair.col, pair.y_label or pair.row,
+                    r_val, stars, method, dpi=220,
+                )
+            except (ValueError, Exception):
+                continue
+
+            ph = document.add_paragraph()
+            ph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            ph.paragraph_format.space_before = Pt(6)
+            ph.paragraph_format.space_after = Pt(2)
+            _apply_tnr(ph.add_run(f"{pair.x_label} vs {pair.y_label}"), 11, bold=True)
+
+            img_p = document.add_paragraph()
+            img_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            img_p.paragraph_format.space_after = Pt(10)
+            img_p.add_run().add_picture(io.BytesIO(png), width=Inches(3.5))
 
 
 def _apply_tnr(run: Any, size: float, bold: bool | None = None) -> None:
@@ -1150,7 +1269,7 @@ def export_docx(request: ExportRequest) -> StreamingResponse:
 
 @app.post("/api/export/report.docx")
 def export_report(request: ReportExportRequest) -> StreamingResponse:
-    if not request.tables and not request.regression:
+    if not request.tables and not request.regression and not request.correlation:
         raise HTTPException(422, "Отчёт не содержит результатов")
     document = Document()
     _setup_document(document)
@@ -1162,4 +1281,8 @@ def export_report(request: ReportExportRequest) -> StreamingResponse:
         if request.tables:
             document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         _append_regression_block(document, request.regression)
+    if request.correlation:
+        if request.tables or request.regression:
+            document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+        _append_correlation_block(document, request.correlation)
     return _stream_document(document, "report.docx")

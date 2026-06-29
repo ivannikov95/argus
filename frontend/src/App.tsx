@@ -66,6 +66,8 @@ interface CorrelationWorkspace {
   variables: string[];
   method: "auto" | "pearson" | "spearman";
   result: CorrelationAnalysis | null;
+  includeMatrix: boolean;
+  reportPairs: { row: string; col: string }[];
 }
 
 interface RegressionWorkspace {
@@ -162,7 +164,7 @@ function App() {
   const [schema, setSchema] = useState<VariableSchema[]>([]);
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
   const [regression, setRegression] = useState<RegressionWorkspace>({ outcome: "", predictors: [], confidenceLevel: 0.95, cutoff: 0.5, result: null });
-  const [correlation, setCorrelation] = useState<CorrelationWorkspace>({ variables: [], method: "auto", result: null });
+  const [correlation, setCorrelation] = useState<CorrelationWorkspace>({ variables: [], method: "auto", result: null, includeMatrix: false, reportPairs: [] });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [projectName, setProjectName] = useState("Новое исследование");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -562,16 +564,31 @@ function App() {
 
   const exportReport = async () => {
     const computed = slides.map((s, idx) => ({ s, idx })).filter(({ s }) => s.analysis !== null);
-    if (!computed.length && !regression.result) { setNotice("Нет рассчитанных результатов для экспорта"); return; }
+    const hasCorr = correlation.result && (correlation.includeMatrix || correlation.reportPairs.length > 0);
+    if (!computed.length && !regression.result && !hasCorr) { setNotice("Нет рассчитанных результатов для экспорта"); return; }
     setBusy("Собираю отчёт…");
     try {
       const tables: ExportOptions[] = computed.map(({ s, idx }) => buildExportOptions(s, s.selected, idx + 1));
       const regressionExport = regression.result ? {
-        analysis: regression.result,
-        cutoff: regression.cutoff,
+        analysis: regression.result, cutoff: regression.cutoff,
         labels: Object.fromEntries(schema.map((v) => [v.name, v.label])),
       } : undefined;
-      download(await api.exportReport(tables, regressionExport), "report.docx");
+      const correlationExport = hasCorr && correlation.result ? {
+        result: correlation.result,
+        include_matrix: correlation.includeMatrix,
+        pairs: correlation.reportPairs.map((p) => {
+          const xSch = schema.find((s) => s.name === p.col);
+          const ySch = schema.find((s) => s.name === p.row);
+          return {
+            row: p.row, col: p.col,
+            x_label: xSch?.label ?? p.col,
+            y_label: ySch?.label ?? p.row,
+            x_values: dataset!.rows.map((r) => { const v = r[p.col]; const n = typeof v === "string" ? parseFloat(v) : (v as number); return isNaN(n) ? null : n; }),
+            y_values: dataset!.rows.map((r) => { const v = r[p.row]; const n = typeof v === "string" ? parseFloat(v) : (v as number); return isNaN(n) ? null : n; }),
+          };
+        }),
+      } : undefined;
+      download(await api.exportReport(tables, regressionExport, correlationExport), "report.docx");
       setNotice("Единый отчёт сформирован");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Ошибка экспорта отчёта");
@@ -684,7 +701,7 @@ function App() {
             <CorrelationPage dataset={dataset} schema={schema} workspace={correlation} setWorkspace={setCorrelation} />
           )}
           {page === "report" && dataset && (
-            <ReportPreviewPage slides={slides} schema={schema} regression={regression} onExport={exportReport} />
+            <ReportPreviewPage slides={slides} schema={schema} regression={regression} correlation={correlation} setCorrelation={setCorrelation} onExport={exportReport} />
           )}
         </div>
       </main>
@@ -1297,12 +1314,14 @@ function ScatterTooltip({ dataset, schema, labels, hovered, result, method }: {
   );
 }
 
-function CorrelationModal({ dataset, schema, labels, cell, result, onClose }: {
+function CorrelationModal({ dataset, schema, labels, cell, result, inReport, onToggleReport, onClose }: {
   dataset: Dataset;
   schema: VariableSchema[];
   labels: Record<string, string>;
   cell: { row: string; col: string };
   result: CorrelationAnalysis;
+  inReport: boolean;
+  onToggleReport: () => void;
   onClose: () => void;
 }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
@@ -1379,9 +1398,14 @@ function CorrelationModal({ dataset, schema, labels, cell, result, onClose }: {
               <span className="corr-stat-value">{formatPExact(p)}</span>
             </div>
           </div>
-          <button className="corr-modal-dl-btn" onClick={download} disabled={!imgUrl}>
-            ↓ Скачать график
-          </button>
+          <div className="corr-modal-actions">
+            <button className={`corr-modal-report-btn${inReport ? " active" : ""}`} onClick={onToggleReport}>
+              {inReport ? "✓ В отчёте" : "+ В отчёт"}
+            </button>
+            <button className="corr-modal-dl-btn" onClick={download} disabled={!imgUrl}>
+              ↓ Скачать график
+            </button>
+          </div>
         </div>
       </div>
     </div>,
@@ -1449,6 +1473,14 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
           <h1>Корреляции</h1>
           <p>Выберите переменные — матрица рассчитается автоматически.</p>
         </div>
+        {result && (
+          <button
+            className={`corr-report-btn${workspace.includeMatrix ? " active" : ""}`}
+            onClick={() => setWorkspace((p) => ({ ...p, includeMatrix: !p.includeMatrix }))}
+          >
+            {workspace.includeMatrix ? "✓ Матрица в отчёте" : "Добавить матрицу в отчёт"}
+          </button>
+        )}
       </div>
       <div className="analysis-layout">
         <div className="analysis-main">
@@ -1552,7 +1584,15 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
           <ScatterTooltip dataset={dataset} schema={schema} labels={labels} hovered={hovered} result={result} method={result.method} />
         )}
         {modalCell && result && (
-          <CorrelationModal dataset={dataset} schema={schema} labels={labels} cell={modalCell} result={result} onClose={() => setModalCell(null)} />
+          <CorrelationModal
+            dataset={dataset} schema={schema} labels={labels} cell={modalCell} result={result}
+            inReport={workspace.reportPairs.some((p) => p.row === modalCell.row && p.col === modalCell.col)}
+            onToggleReport={() => setWorkspace((p) => {
+              const has = p.reportPairs.some((q) => q.row === modalCell.row && q.col === modalCell.col);
+              return { ...p, reportPairs: has ? p.reportPairs.filter((q) => !(q.row === modalCell.row && q.col === modalCell.col)) : [...p.reportPairs, { row: modalCell.row, col: modalCell.col }] };
+            })}
+            onClose={() => setModalCell(null)}
+          />
         )}
       </div>
     </section>
@@ -1749,10 +1789,12 @@ function RegressionPage({ dataset, schema, workspace, setWorkspace, onOpenReport
   );
 }
 
-function ReportPreviewPage({ slides, schema, regression, onExport }: {
+function ReportPreviewPage({ slides, schema, regression, correlation, setCorrelation, onExport }: {
   slides: TableSlide[];
   schema: VariableSchema[];
   regression: RegressionWorkspace;
+  correlation: CorrelationWorkspace;
+  setCorrelation: (w: CorrelationWorkspace | ((p: CorrelationWorkspace) => CorrelationWorkspace)) => void;
   onExport: () => void;
 }) {
   const labels = Object.fromEntries(schema.map((v) => [v.name, v.label]));
@@ -1780,7 +1822,7 @@ function ReportPreviewPage({ slides, schema, regression, onExport }: {
     <section className="page report-preview-page">
       <div className="page-heading">
         <div><span className="eyebrow">05 · Итоговый документ</span><h1>Предпросмотр отчёта</h1><p>Все рассчитанные разделы проекта в порядке экспорта.</p></div>
-        <button className="button primary" disabled={!tables.length && !model} onClick={onExport}>Экспортировать DOCX</button>
+        <button className="button primary" disabled={!tables.length && !model && !correlation.result} onClick={onExport}>Экспортировать DOCX</button>
       </div>
       {!tables.length && !model && <div className="regression-empty"><span>▤</span><h2>Отчёт пока пуст</h2><p>Рассчитайте описательную таблицу или регрессионную модель — результат появится здесь автоматически.</p></div>}
       <div className="report-pages">
@@ -1809,6 +1851,69 @@ function ReportPreviewPage({ slides, schema, regression, onExport }: {
             <div><h3>Диагностика при cut-off {number(regression.cutoff, 2)}</h3><div className="report-metrics"><span>Чувствительность <strong>{number(diagnostics.sensitivity * 100, 1)}%</strong></span><span>Специфичность <strong>{number(diagnostics.specificity * 100, 1)}%</strong></span><span>Эффективность <strong>{number(diagnostics.efficiency * 100, 1)}%</strong></span></div><div className="report-confusion"><span>TP <strong>{diagnostics.tp}</strong></span><span>FN <strong>{diagnostics.fn}</strong></span><span>FP <strong>{diagnostics.fp}</strong></span><span>TN <strong>{diagnostics.tn}</strong></span></div></div>
           </div>}
         </article>}
+        {correlation.result && (correlation.includeMatrix || correlation.reportPairs.length > 0) && (() => {
+          const cr = correlation.result!;
+          const corrLabels = cr.labels ?? {};
+          const corrMatrix = cr.matrix ?? {};
+          const vars = cr.variables ?? [];
+          const sectionNum = tables.length + (model ? 1 : 0) + 1;
+          const symbol = cr.method === "pearson" ? "r" : "ρ";
+          return (
+            <article className="report-paper">
+              <div className="report-section-label">Раздел {sectionNum} · Корреляционный анализ</div>
+              <h2>Корреляционный анализ</h2>
+              <p className="report-description">
+                Метод: {cr.method === "pearson" ? "Пирсон (r)" : "Спирмен (ρ)"}. N = {cr.n}.
+              </p>
+              {correlation.includeMatrix && vars.length > 0 && (
+                <div className="table-scroll">
+                  <table className="report-preview-table corr-report-table">
+                    <thead>
+                      <tr>
+                        <th />
+                        {vars.map((v) => <th key={v}>{corrLabels[v] ?? v}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vars.map((row) => (
+                        <tr key={row}>
+                          <td><strong>{corrLabels[row] ?? row}</strong></td>
+                          {vars.map((col) => {
+                            if (row === col) return <td key={col} className="corr-report-diag">—</td>;
+                            const cell = corrMatrix[row]?.[col];
+                            return (
+                              <td key={col} style={{ textAlign: "center" }}>
+                                {cell?.r != null ? `${cell.r.toFixed(3)}${cell.stars}` : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {correlation.includeMatrix && <p className="report-method-note">* p&lt;0,05  ** p&lt;0,01  *** p&lt;0,001 ({symbol} — коэффициент корреляции)</p>}
+              {correlation.reportPairs.length > 0 && (
+                <div className="corr-report-pairs">
+                  <p className="corr-report-pairs-label">Скаттерплоты в отчёте ({correlation.reportPairs.length}):</p>
+                  {correlation.reportPairs.map((p) => {
+                    const cell = corrMatrix[p.row]?.[p.col];
+                    const xL = schema.find((s) => s.name === p.col)?.label ?? corrLabels[p.col] ?? p.col;
+                    const yL = schema.find((s) => s.name === p.row)?.label ?? corrLabels[p.row] ?? p.row;
+                    return (
+                      <div key={`${p.row}-${p.col}`} className="corr-report-pair-chip">
+                        <span>{xL} vs {yL}</span>
+                        {cell?.r != null && <span className="corr-chip-r">{symbol} = {cell.r.toFixed(3)}{cell.stars}</span>}
+                        <button onClick={() => setCorrelation((prev) => ({ ...prev, reportPairs: prev.reportPairs.filter((q) => !(q.row === p.row && q.col === p.col)) }))}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </article>
+          );
+        })()}
       </div>
     </section>
   );

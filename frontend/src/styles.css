@@ -614,3 +614,42 @@ textarea.editor-input.small { min-height: 42px; }
 .corr-modal-dl-btn:hover:not(:disabled) { background: #1d4ed8; transform: translateY(-1px); }
 .corr-modal-dl-btn:active { transform: translateY(0); }
 .corr-modal-dl-btn:disabled { background: #b0bbc9; cursor: default; }
+
+/* ─── Correlation alignment fix ─────────────────────────────────────────── */
+.corr-wrap { width: fit-content; max-width: 100%; }
+
+/* ─── Correlation report buttons ─────────────────────────────────────────── */
+.corr-report-btn {
+  padding: 9px 18px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  border: 1.5px solid #2563eb; color: #2563eb; background: #fff; cursor: pointer;
+  white-space: nowrap; transition: all .15s; align-self: flex-start;
+}
+.corr-report-btn:hover { background: #eff6ff; }
+.corr-report-btn.active { background: #2563eb; color: #fff; }
+.corr-modal-actions {
+  display: flex; gap: 10px; margin-top: auto; flex-wrap: wrap;
+}
+.corr-modal-report-btn {
+  padding: 11px 18px; border-radius: 8px; border: 1.5px solid #2563eb;
+  color: #2563eb; background: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.corr-modal-report-btn:hover { background: #eff6ff; }
+.corr-modal-report-btn.active { background: #eff6ff; border-color: #16a34a; color: #16a34a; }
+
+/* ─── Correlation in report preview ─────────────────────────────────────── */
+.corr-report-table th, .corr-report-table td { font-size: 10px; padding: 4px 8px; }
+.corr-report-diag { color: #b0bbc9; text-align: center; }
+.corr-report-pairs { margin-top: 16px; }
+.corr-report-pairs-label { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.corr-report-pair-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #f0f6ff; border: 1px solid #c7d9f8; border-radius: 20px;
+  padding: 5px 10px 5px 12px; font-size: 11px; margin: 4px 4px 0 0;
+}
+.corr-chip-r { color: #2563eb; font-weight: 700; font-size: 10px; }
+.corr-report-pair-chip button {
+  border: none; background: none; cursor: pointer; color: #9ca3af;
+  font-size: 11px; padding: 0 2px; line-height: 1; transition: color .1s;
+}
+.corr-report-pair-chip button:hover { color: #ef4444; }
