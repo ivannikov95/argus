@@ -1824,6 +1824,8 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   workspace: LogisticTableWorkspace;
   setWorkspace: (w: LogisticTableWorkspace | ((prev: LogisticTableWorkspace) => LogisticTableWorkspace)) => void;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState("");
   const labels = useMemo(() => Object.fromEntries(schema.map((v) => [v.name, v.label])), [schema]);
   const binaryOutcomes = useMemo(() => schema.filter((v) => v.type === "binary" || (v.type === "categorical" && v.unique === 2)), [schema]);
   const availablePredictors = useMemo(() =>
@@ -1834,7 +1836,6 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
 
   // ── univariate runner ──────────────────────────────────────────────────────
   const runUnivariate = useCallback(async (predictor: string) => {
-    setWorkspace({ ...workspace, rows: workspace.rows.map((r) => r.predictor === predictor ? { ...r, univariateLoading: true, univariateError: null } : r) });
     try {
       const res = await api.logisticUnivariate(dataset.rows, workspace.outcome, [predictor]);
       const data = res.univariate[predictor];
@@ -1975,18 +1976,43 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                       );
                     })}
                     {/* Add row */}
-                    {availablePredictors.length > 0 && (
-                      <tr className="lgt-add-row">
-                        <td colSpan={9}>
-                          <select className="lgt-add-select" value="" onChange={(e) => { if (e.target.value) addPredictor(e.target.value); }}>
-                            <option value="">⊕ Добавить предиктор из датасета…</option>
-                            {availablePredictors.map((v) => <option key={v.name} value={v.name}>{v.label}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    )}
+                    <tr className="lgt-add-row">
+                      <td colSpan={9}>
+                        <button className="lgt-add-btn" onClick={() => { setPickerOpen((v) => !v); setPickerSearch(""); }}>
+                          ⊕ Добавить предиктор из датасета…
+                        </button>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
+                {/* Predictor picker panel */}
+                {pickerOpen && availablePredictors.length > 0 && (
+                  <div className="lgt-picker">
+                    <div className="lgt-picker-header">
+                      <input
+                        className="lgt-picker-search"
+                        placeholder="Поиск переменной…"
+                        value={pickerSearch}
+                        onChange={(e) => setPickerSearch(e.target.value)}
+                        autoFocus
+                      />
+                      <button className="lgt-picker-close" onClick={() => setPickerOpen(false)}>×</button>
+                    </div>
+                    <div className="lgt-picker-list">
+                      {availablePredictors
+                        .filter((v) => !pickerSearch || v.label.toLowerCase().includes(pickerSearch.toLowerCase()) || v.name.toLowerCase().includes(pickerSearch.toLowerCase()))
+                        .map((v) => (
+                          <button key={v.name} className="lgt-picker-item" onClick={() => { addPredictor(v.name); if (availablePredictors.length <= 1) setPickerOpen(false); }}>
+                            <span className="lgt-picker-label">{v.label}</span>
+                            <span className={`lgt-type-chip lgt-type-${v.type}`}>{v.type.toUpperCase()}</span>
+                          </button>
+                        ))}
+                      {availablePredictors.filter((v) => !pickerSearch || v.label.toLowerCase().includes(pickerSearch.toLowerCase()) || v.name.toLowerCase().includes(pickerSearch.toLowerCase())).length === 0 && (
+                        <div className="lgt-picker-empty">Ничего не найдено</div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {workspace.multiResult && (
                   <div className="lgt-footer">
                     <span>N = {workspace.multiResult.n.toLocaleString("ru-RU")} наблюдений</span>
