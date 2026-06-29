@@ -709,8 +709,7 @@ textarea.editor-input.small { min-height: 42px; }
 
 /* ── Logistic Table Page ───────────────────────────────────────────── */
 .lgt-layout { display: block; }
-.lgt-outcome-bar { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
-.lgt-outcome-bar .field { flex: 1; max-width: 360px; }
+.lgt-outcome-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
 .lgt-badge { flex-shrink: 0; background: #e0e7ff; color: #4338ca; font-size: 10px; font-weight: 700; letter-spacing: .1em; padding: 4px 10px; border-radius: 20px; border: 1px solid #c7d2fe; }
 
 /* Two-column body */
@@ -809,13 +808,13 @@ textarea.editor-input.small { min-height: 42px; }
 
 /* ── Custom outcome picker ────────────────────────────────────────── */
 .lgt-outcome-picker { position: relative; }
-.lgt-outcome-btn { display: flex; align-items: center; gap: 8px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 8px 12px 8px 6px; cursor: pointer; transition: border-color .15s, box-shadow .15s; min-width: 220px; }
+.lgt-outcome-btn { display: flex; align-items: center; gap: 10px; background: #f9fafb; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 10px 14px; cursor: pointer; transition: border-color .15s, box-shadow .15s; min-width: 280px; }
 .lgt-outcome-btn:hover { border-color: #a5b4fc; box-shadow: 0 0 0 3px #eef2ff; }
 .lgt-outcome-btn--open { border-color: #6366f1; box-shadow: 0 0 0 3px #e0e7ff; }
 .lgt-outcome-btn--set { background: #fafafa; }
 .lgt-outcome-pill { background: #6366f1; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; flex-shrink: 0; letter-spacing: .04em; }
-.lgt-outcome-value { flex: 1; font-size: 13px; font-weight: 500; color: #111827; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lgt-outcome-btn:not(.lgt-outcome-btn--set) .lgt-outcome-value { color: #9ca3af; font-weight: 400; }
+.lgt-outcome-value { flex: 1; font-size: 14px; font-weight: 500; color: #111827; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgt-outcome-btn:not(.lgt-outcome-btn--set) .lgt-outcome-value { color: #9ca3af; font-weight: 400; font-style: italic; }
 .lgt-outcome-chevron { width: 12px; height: 12px; color: #9ca3af; flex-shrink: 0; transition: transform .15s; }
 .lgt-outcome-btn--open .lgt-outcome-chevron { transform: rotate(180deg); color: #6366f1; }
 .lgt-outcome-dropdown { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 100; overflow: hidden; min-width: 240px; }
@@ -826,3 +825,12 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-outcome-option--active .lgt-outcome-option-label { color: #4338ca; }
 .lgt-outcome-option-meta { font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0; }
 .lgt-outcome-empty { padding: 12px 14px; font-size: 12px; color: #9ca3af; }
+
+/* ── Outcome bar label section ────────────────────────────────────── */
+.lgt-outcome-bar-label { display: flex; align-items: center; gap: 14px; }
+.lgt-outcome-step { width: 28px; height: 28px; border-radius: 50%; background: #6366f1; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lgt-outcome-bar-title { font-size: 14px; font-weight: 600; color: #111827; }
+.lgt-outcome-bar-hint { font-size: 12px; color: #6b7280; margin-top: 1px; }
+.lgt-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.lgt-header-left { display: flex; flex-direction: column; gap: 2px; }
+.lgt-header-title { font-size: 22px; font-weight: 700; color: #111827; margin: 0; letter-spacing: -.3px; }

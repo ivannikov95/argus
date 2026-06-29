@@ -1971,42 +1971,50 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
             <span className="eyebrow">03 · Регрессионный анализ</span>
             <h1 className="lgt-header-title">Логистическая регрессия</h1>
           </div>
-          <div className="lgt-header-right">
-            <div className="lgt-outcome-picker" ref={outcomeRef}>
-              <button
-                className={`lgt-outcome-btn${outcomeOpen ? " lgt-outcome-btn--open" : ""}${workspace.outcome ? " lgt-outcome-btn--set" : ""}`}
-                onClick={() => setOutcomeOpen((v) => !v)}
-              >
-                <span className="lgt-outcome-pill">Исход</span>
-                <span className="lgt-outcome-value">
-                  {workspace.outcome ? (labels[workspace.outcome] || workspace.outcome) : "выберите переменную"}
-                </span>
-                <svg className="lgt-outcome-chevron" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-              {outcomeOpen && (
-                <div className="lgt-outcome-dropdown">
-                  {binaryOutcomes.length === 0 && <div className="lgt-outcome-empty">Нет бинарных переменных</div>}
-                  {binaryOutcomes.map((v) => (
-                    <button
-                      key={v.name}
-                      className={`lgt-outcome-option${workspace.outcome === v.name ? " lgt-outcome-option--active" : ""}`}
-                      onClick={() => { setWorkspace({ outcome: v.name, rows: [], multiResult: null, multiLoading: false }); setOutcomeOpen(false); }}
-                    >
-                      <span className="lgt-outcome-option-label">{v.label}</span>
-                      <span className="lgt-outcome-option-meta">{v.unique} уровня · n={v.count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+          <span className="lgt-badge">LOGISTIC REGRESSION</span>
+        </div>
+
+        {/* Outcome selector — prominent step */}
+        <div className="lgt-outcome-bar" ref={outcomeRef}>
+          <div className="lgt-outcome-bar-label">
+            <span className="lgt-outcome-step">1</span>
+            <div>
+              <div className="lgt-outcome-bar-title">Переменная исхода</div>
+              <div className="lgt-outcome-bar-hint">Выберите бинарный исход для анализа</div>
             </div>
-            <span className="lgt-badge">LOGISTIC REGRESSION</span>
+          </div>
+          <div className="lgt-outcome-picker">
+            <button
+              className={`lgt-outcome-btn${outcomeOpen ? " lgt-outcome-btn--open" : ""}${workspace.outcome ? " lgt-outcome-btn--set" : ""}`}
+              onClick={() => setOutcomeOpen((v) => !v)}
+            >
+              <span className="lgt-outcome-value">
+                {workspace.outcome ? (labels[workspace.outcome] || workspace.outcome) : "— выберите переменную —"}
+              </span>
+              <svg className="lgt-outcome-chevron" viewBox="0 0 12 12" fill="none">
+                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            {outcomeOpen && (
+              <div className="lgt-outcome-dropdown">
+                {binaryOutcomes.length === 0 && <div className="lgt-outcome-empty">Нет бинарных переменных</div>}
+                {binaryOutcomes.map((v) => (
+                  <button
+                    key={v.name}
+                    className={`lgt-outcome-option${workspace.outcome === v.name ? " lgt-outcome-option--active" : ""}`}
+                    onClick={() => { setWorkspace({ outcome: v.name, rows: [], multiResult: null, multiLoading: false }); setOutcomeOpen(false); }}
+                  >
+                    <span className="lgt-outcome-option-label">{v.label}</span>
+                    <span className="lgt-outcome-option-meta">{v.unique} уровня · n={v.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {!workspace.outcome
-          ? <div className="empty-analysis"><div className="empty-analysis-icon">∑</div><h2>Выберите переменную исхода</h2><p>Выберите бинарную переменную исхода — все предикторы рассчитаются автоматически.</p></div>
+          ? null
           : (
             <div className="lgt-body">
               {/* ── Left: predictor card picker ── */}
