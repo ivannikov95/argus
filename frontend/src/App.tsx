@@ -1205,6 +1205,22 @@ function TablePage({
 }
 
 // ─── Correlation heatmap color ───────────────────────────────────────────────
+function corrDirection(r: number): string { return r >= 0 ? "Прямая" : "Обратная"; }
+function corrStrengthWord(r: number): string {
+  const a = Math.abs(r);
+  if (a >= 0.9) return "очень сильная";
+  if (a >= 0.7) return "сильная";
+  if (a >= 0.5) return "умеренная";
+  if (a >= 0.3) return "слабая";
+  return "очень слабая";
+}
+function formatPExact(p: number | null): string {
+  if (p === null) return "—";
+  if (p < 0.0001) return p.toExponential(2);
+  if (p < 0.01) return p.toFixed(4);
+  return p.toFixed(3);
+}
+
 function corrColor(r: number | null): string {
   if (r === null || isNaN(r)) return "#f0f2f5";
   const abs = Math.abs(r);
@@ -1282,6 +1298,98 @@ function ScatterTooltip({ dataset, schema, labels, hovered, result, method }: {
   );
 }
 
+function CorrelationModal({ dataset, schema, labels, cell, result, onClose }: {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  labels: Record<string, string>;
+  cell: { row: string; col: string };
+  result: CorrelationAnalysis;
+  onClose: () => void;
+}) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const corrCell = result.matrix[cell.row]?.[cell.col];
+  const xLabel = schema.find((s) => s.name === cell.col)?.label ?? labels[cell.col] ?? cell.col;
+  const yLabel = schema.find((s) => s.name === cell.row)?.label ?? labels[cell.row] ?? cell.row;
+  const r = corrCell?.r ?? null;
+  const p = corrCell?.p ?? null;
+  const symbol = result.method === "pearson" ? "r" : "ρ";
+
+  useEffect(() => {
+    let url: string | null = null;
+    const xValues = dataset.rows.map((row) => {
+      const v = row[cell.col]; const n = typeof v === "string" ? parseFloat(v) : (v as number);
+      return isNaN(n) ? null : n;
+    });
+    const yValues = dataset.rows.map((row) => {
+      const v = row[cell.row]; const n = typeof v === "string" ? parseFloat(v) : (v as number);
+      return isNaN(n) ? null : n;
+    });
+    api.scatterUrl(xValues, yValues, xLabel, yLabel, r, corrCell?.stars ?? "", result.method)
+      .then((u) => { url = u; setImgUrl(u); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => { if (url) URL.revokeObjectURL(url); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", handler); document.body.style.overflow = ""; };
+  }, [onClose]);
+
+  const download = () => {
+    if (!imgUrl) return;
+    const a = document.createElement("a");
+    a.href = imgUrl;
+    a.download = `correlation_${cell.col}_vs_${cell.row}.png`;
+    a.click();
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="corr-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close-btn" onClick={onClose} aria-label="Закрыть">✕</button>
+        <div className="corr-modal-img-col">
+          {loading && <div className="corr-modal-spinner"><span className="spinner" /></div>}
+          {imgUrl && <img src={imgUrl} className="corr-modal-img" alt="scatter plot" />}
+        </div>
+        <div className="corr-modal-info-col">
+          <span className="corr-modal-badge">
+            {result.method === "pearson" ? "Пирсон" : "Спирмен"} · n = {corrCell?.n ?? result.n}
+          </span>
+          {r !== null ? (
+            <h2 className="corr-modal-title">
+              {corrDirection(r)} {corrStrengthWord(r)} корреляционная взаимосвязь между «{xLabel}» и «{yLabel}»
+            </h2>
+          ) : (
+            <h2 className="corr-modal-title">Нет данных для расчёта</h2>
+          )}
+          <div className="corr-modal-stats">
+            <div className="corr-stat-row">
+              <span className="corr-stat-label">Коэффициент {symbol}</span>
+              <span className="corr-stat-value">
+                {r !== null ? `${r.toFixed(3)} ${corrCell?.stars ?? ""}` : "—"}
+              </span>
+            </div>
+            <div className="corr-stat-row">
+              <span className="corr-stat-label">p-value</span>
+              <span className="corr-stat-value">{formatPExact(p)}</span>
+            </div>
+          </div>
+          <button className="corr-modal-dl-btn" onClick={download} disabled={!imgUrl}>
+            ↓ Скачать график
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
   dataset: Dataset;
   schema: VariableSchema[];
@@ -1292,6 +1400,7 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hovered, setHovered] = useState<HoveredCell | null>(null);
+  const [modalCell, setModalCell] = useState<{ row: string; col: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -1379,6 +1488,7 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
                                 setHovered({ row, col, rectRight: rect.right, rectTop: rect.top });
                               }}
                               onMouseLeave={isDiag ? undefined : () => setHovered(null)}
+                              onClick={isDiag ? undefined : () => setModalCell({ row, col })}
                             >
                               {isDiag ? <span className="corr-diag-dot">—</span> : cell?.r != null ? (
                                 <><span className="corr-r">{cell.r.toFixed(2)}</span><span className="corr-stars">{cell.stars}</span></>
@@ -1441,6 +1551,9 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
         </aside>
         {hovered && result && (
           <ScatterTooltip dataset={dataset} schema={schema} labels={labels} hovered={hovered} result={result} method={result.method} />
+        )}
+        {modalCell && result && (
+          <CorrelationModal dataset={dataset} schema={schema} labels={labels} cell={modalCell} result={result} onClose={() => setModalCell(null)} />
         )}
       </div>
     </section>
