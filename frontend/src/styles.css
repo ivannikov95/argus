@@ -653,3 +653,29 @@ textarea.editor-input.small { min-height: 42px; }
   font-size: 11px; padding: 0 2px; line-height: 1; transition: color .1s;
 }
 .corr-report-pair-chip button:hover { color: #ef4444; }
+
+/* ─── Scatter plots in report preview ───────────────────────────────────── */
+.corr-report-scatter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.corr-report-scatter-card {
+  border: 1px solid #dde3ee;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.corr-report-scatter-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #eef2f7;
+  font-size: 11px;
+}
+.corr-report-scatter-title { flex: 1; font-weight: 600; color: #344054; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corr-report-scatter-remove { border: none; background: none; color: #9ca3af; cursor: pointer; font-size: 11px; padding: 0 2px; line-height: 1; transition: color .1s; flex-shrink: 0; }
+.corr-report-scatter-remove:hover { color: #ef4444; }
+.scatter-preview-img { display: block; width: 100%; height: auto; }
+.scatter-preview-loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #b0bbc9; }

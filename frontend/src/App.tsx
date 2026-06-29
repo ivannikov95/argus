@@ -701,7 +701,7 @@ function App() {
             <CorrelationPage dataset={dataset} schema={schema} workspace={correlation} setWorkspace={setCorrelation} />
           )}
           {page === "report" && dataset && (
-            <ReportPreviewPage slides={slides} schema={schema} regression={regression} correlation={correlation} setCorrelation={setCorrelation} onExport={exportReport} />
+            <ReportPreviewPage slides={slides} schema={schema} dataset={dataset} regression={regression} correlation={correlation} setCorrelation={setCorrelation} onExport={exportReport} />
           )}
         </div>
       </main>
@@ -1789,9 +1789,39 @@ function RegressionPage({ dataset, schema, workspace, setWorkspace, onOpenReport
   );
 }
 
-function ReportPreviewPage({ slides, schema, regression, correlation, setCorrelation, onExport }: {
+function ScatterPreviewImage({ pair, dataset, schema, result }: {
+  pair: { row: string; col: string };
+  dataset: Dataset;
+  schema: VariableSchema[];
+  result: CorrelationAnalysis;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let objUrl: string | null = null;
+    const xSch = schema.find((s) => s.name === pair.col);
+    const ySch = schema.find((s) => s.name === pair.row);
+    const xValues = dataset.rows.map((r) => { const v = r[pair.col]; const n = typeof v === "string" ? parseFloat(v) : (v as number); return isNaN(n) ? null : n; });
+    const yValues = dataset.rows.map((r) => { const v = r[pair.row]; const n = typeof v === "string" ? parseFloat(v) : (v as number); return isNaN(n) ? null : n; });
+    const cell = result.matrix[pair.row]?.[pair.col];
+    api.scatterUrl(xValues, yValues, xSch?.label ?? pair.col, ySch?.label ?? pair.row, cell?.r ?? null, cell?.stars ?? "", result.method)
+      .then((u) => { objUrl = u; setUrl(u); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => { if (objUrl) URL.revokeObjectURL(objUrl); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pair.row, pair.col]);
+
+  if (loading) return <div className="scatter-preview-loading"><span className="spinner" /></div>;
+  if (!url) return null;
+  return <img src={url} className="scatter-preview-img" alt={`${pair.col} vs ${pair.row}`} />;
+}
+
+function ReportPreviewPage({ slides, schema, dataset, regression, correlation, setCorrelation, onExport }: {
   slides: TableSlide[];
   schema: VariableSchema[];
+  dataset: Dataset | null;
   regression: RegressionWorkspace;
   correlation: CorrelationWorkspace;
   setCorrelation: (w: CorrelationWorkspace | ((p: CorrelationWorkspace) => CorrelationWorkspace)) => void;
@@ -1895,17 +1925,19 @@ function ReportPreviewPage({ slides, schema, regression, correlation, setCorrela
               )}
               {correlation.includeMatrix && <p className="report-method-note">* p&lt;0,05  ** p&lt;0,01  *** p&lt;0,001 ({symbol} — коэффициент корреляции)</p>}
               {correlation.reportPairs.length > 0 && (
-                <div className="corr-report-pairs">
-                  <p className="corr-report-pairs-label">Скаттерплоты в отчёте ({correlation.reportPairs.length}):</p>
+                <div className="corr-report-scatter-grid">
                   {correlation.reportPairs.map((p) => {
                     const cell = corrMatrix[p.row]?.[p.col];
                     const xL = schema.find((s) => s.name === p.col)?.label ?? corrLabels[p.col] ?? p.col;
                     const yL = schema.find((s) => s.name === p.row)?.label ?? corrLabels[p.row] ?? p.row;
                     return (
-                      <div key={`${p.row}-${p.col}`} className="corr-report-pair-chip">
-                        <span>{xL} vs {yL}</span>
-                        {cell?.r != null && <span className="corr-chip-r">{symbol} = {cell.r.toFixed(3)}{cell.stars}</span>}
-                        <button onClick={() => setCorrelation((prev) => ({ ...prev, reportPairs: prev.reportPairs.filter((q) => !(q.row === p.row && q.col === p.col)) }))}>✕</button>
+                      <div key={`${p.row}-${p.col}`} className="corr-report-scatter-card">
+                        <div className="corr-report-scatter-header">
+                          <span className="corr-report-scatter-title">{xL} vs {yL}</span>
+                          {cell?.r != null && <span className="corr-chip-r">{symbol} = {cell.r.toFixed(3)}{cell.stars}</span>}
+                          <button className="corr-report-scatter-remove" onClick={() => setCorrelation((prev) => ({ ...prev, reportPairs: prev.reportPairs.filter((q) => !(q.row === p.row && q.col === p.col)) }))}>✕</button>
+                        </div>
+                        {dataset && cr && <ScatterPreviewImage pair={p} dataset={dataset} schema={schema} result={cr} />}
                       </div>
                     );
                   })}
