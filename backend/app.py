@@ -742,6 +742,64 @@ def regression(request: RegressionRequest) -> dict[str, Any]:
     return run_regression(request)
 
 
+class CorrelationRequest(BaseModel):
+    rows: list[dict[str, Any]]
+    variables: list[str] = Field(min_length=2)
+    variable_overrides: dict[str, dict[str, Any]] = {}
+    method: str = "auto"  # "pearson" | "spearman" | "auto"
+
+
+@app.post("/api/analyze/correlation")
+def analyze_correlation(request: CorrelationRequest) -> dict[str, Any]:
+    from scipy.stats import pearsonr, spearmanr, shapiro
+    df = to_frame(request.rows)
+    variables = [v for v in request.variables if v in df.columns]
+    if len(variables) < 2:
+        raise HTTPException(422, "Нужно выбрать хотя бы 2 числовые переменные")
+
+    method = request.method
+    if method == "auto":
+        try:
+            all_normal = all(
+                len(df[v].dropna()) >= 3 and shapiro(df[v].dropna().astype(float)).pvalue > 0.05
+                for v in variables
+            )
+            method = "pearson" if all_normal else "spearman"
+        except Exception:
+            method = "spearman"
+
+    labels = {v: request.variable_overrides.get(v, {}).get("label", v) for v in variables}
+    matrix: dict[str, dict] = {}
+    for v1 in variables:
+        matrix[v1] = {}
+        for v2 in variables:
+            if v1 == v2:
+                matrix[v1][v2] = {"r": 1.0, "p": 0.0, "n": int(df[v1].notna().sum()), "stars": ""}
+                continue
+            mask = df[v1].notna() & df[v2].notna()
+            x = df.loc[mask, v1].astype(float)
+            y = df.loc[mask, v2].astype(float)
+            n = int(len(x))
+            if n < 3:
+                matrix[v1][v2] = {"r": None, "p": None, "n": n, "stars": "—"}
+                continue
+            try:
+                r, p = pearsonr(x, y) if method == "pearson" else spearmanr(x, y)
+                stars = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+                matrix[v1][v2] = {"r": round(float(r), 3), "p": round(float(p), 4), "n": n, "stars": stars}
+            except Exception:
+                matrix[v1][v2] = {"r": None, "p": None, "n": n, "stars": "—"}
+
+    return {
+        "method": method,
+        "variables": variables,
+        "labels": labels,
+        "matrix": matrix,
+        "n": int(len(df)),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.post("/api/project/save")
 def save_project(request: ProjectSaveRequest) -> dict[str, Any]:
     if request.project_id:

@@ -62,6 +62,22 @@ export interface RegressionCoefficient {
   effect_ci_upper: number;
 }
 
+export interface CorrelationCell {
+  r: number | null;
+  p: number | null;
+  n: number;
+  stars: string;
+}
+
+export interface CorrelationAnalysis {
+  method: "pearson" | "spearman";
+  variables: string[];
+  labels: Record<string, string>;
+  matrix: Record<string, Record<string, CorrelationCell>>;
+  n: number;
+  generated_at: string;
+}
+
 export interface RegressionAnalysis {
   model_type: "linear" | "logistic";
   fit_method: "ols" | "mle" | "firth";

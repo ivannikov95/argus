@@ -1,4 +1,4 @@
-import type { Dataset, RegressionAnalysis, TableOneAnalysis } from "./types";
+import type { CorrelationAnalysis, Dataset, RegressionAnalysis, TableOneAnalysis } from "./types";
 
 export interface ProjectMeta {
   project_id: string;
@@ -120,6 +120,20 @@ export const api = {
         confidence_level: confidenceLevel,
       }),
     }).then(parse<RegressionAnalysis>),
+
+  correlation: (
+    rows: Record<string, unknown>[],
+    variables: string[],
+    variableOverrides: Record<string, unknown> = {},
+    method: "auto" | "pearson" | "spearman" = "auto",
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/analyze/correlation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({ rows, variables, variable_overrides: variableOverrides, method }),
+    }).then(parse<CorrelationAnalysis>),
 
   saveProject: (payload: Record<string, unknown>) =>
     fetch("/api/project/save", {

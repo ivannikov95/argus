@@ -478,3 +478,26 @@ textarea.editor-input.small { min-height: 42px; }
   .report-paper { padding: 30px 22px; }
   .report-diagnostic-preview { grid-template-columns: 1fr; }
 }
+
+/* ─── Correlation heatmap ────────────────────────────────────────────────── */
+.corr-wrap { padding: 4px 0 24px; }
+.corr-meta { display: flex; gap: 20px; font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.corr-meta strong { color: var(--ink); }
+.corr-scroll { overflow-x: auto; max-width: 100%; }
+.corr-table { border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+.corr-table th, .corr-table td { border: 1px solid #dde3ee; padding: 0; }
+.corr-table th { background: #f5f7fa; }
+.corr-colhead { display: block; writing-mode: vertical-lr; transform: rotate(180deg); height: 78px; padding: 6px 8px; font-size: 10px; font-weight: 600; color: #344054; max-width: 24px; overflow: hidden; text-overflow: ellipsis; }
+.corr-rowlabel { padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 600; color: #344054; max-width: 140px; overflow: hidden; text-overflow: ellipsis; background: #f5f7fa; }
+.corr-cell { width: 58px; height: 52px; text-align: center; vertical-align: middle; cursor: default; transition: filter .12s; }
+.corr-cell:hover { filter: brightness(.92); }
+.corr-diag { background: #eef2f7 !important; }
+.corr-diag-dot { color: #b0bbc9; font-size: 16px; }
+.corr-r { display: block; font-size: 13px; font-weight: 700; color: #16213a; line-height: 1.2; }
+.corr-stars { display: block; font-size: 9px; color: #344054; letter-spacing: .03em; min-height: 12px; }
+.corr-busy { display: flex; align-items: center; gap: 10px; padding: 40px; color: var(--muted); font-size: 13px; }
+.corr-error { padding: 20px; color: var(--red); font-size: 13px; }
+.corr-legend { display: flex; align-items: center; gap: 14px; margin-top: 14px; font-size: 10px; color: var(--muted); flex-wrap: wrap; }
+.corr-scale { display: flex; align-items: center; gap: 5px; margin-left: auto; font-size: 10px; color: var(--muted); }
+.corr-scale-neg { width: 64px; height: 10px; border-radius: 3px; background: linear-gradient(to right, hsl(350,75%,64%), white); border: 1px solid #dde3ee; }
+.corr-scale-pos { width: 64px; height: 10px; border-radius: 3px; background: linear-gradient(to right, white, hsl(217,75%,64%)); border: 1px solid #dde3ee; }

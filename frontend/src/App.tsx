@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import type { ExportOptions, ProjectMeta } from "./api";
-import type { AnalysisRow, Dataset, RegressionAnalysis, TableOneAnalysis, VariableSchema } from "./types";
+import type { AnalysisRow, CorrelationAnalysis, Dataset, RegressionAnalysis, TableOneAnalysis, VariableSchema } from "./types";
 import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./draftStore";
 
 // One independent table page in the multi-table report
@@ -15,7 +15,7 @@ interface TableSlide {
   analysis: TableOneAnalysis | null;
 }
 
-type Page = "home" | "dataset" | "variables" | "table" | "regression" | "report";
+type Page = "home" | "dataset" | "variables" | "table" | "regression" | "correlation" | "report";
 
 function ArgusMark({ className = "" }: { className?: string }) {
   return <img className={`argus-mark ${className}`.trim()} src="/argus-mark.svg" alt="" aria-hidden="true" />;
@@ -59,6 +59,13 @@ interface WorkspaceDraft {
   projectName: string;
   page: Page;
   regression?: RegressionWorkspace;
+  correlation?: CorrelationWorkspace;
+}
+
+interface CorrelationWorkspace {
+  variables: string[];
+  method: "auto" | "pearson" | "spearman";
+  result: CorrelationAnalysis | null;
 }
 
 interface RegressionWorkspace {
@@ -96,7 +103,7 @@ const nav: { id: Page | string; label: string; mark: string; enabled: boolean }[
   { id: "table", label: "Описательная статистика", mark: "▥", enabled: true },
   { id: "regression", label: "Регрессия", mark: "∑", enabled: true },
   { id: "report", label: "Отчёт", mark: "▤", enabled: true },
-  { id: "correlation", label: "Корреляции", mark: "⌁", enabled: false },
+  { id: "correlation", label: "Корреляции", mark: "⌁", enabled: true },
   { id: "survival", label: "Выживаемость", mark: "◷", enabled: false },
 ];
 
@@ -148,13 +155,14 @@ function App() {
 
   // Read URL once synchronously to set correct initial state — no home-page flash
   const [page, setPage] = useState<Page>(() => {
-    const m = window.location.pathname.match(/\/(dataset|variables|table|regression|report)$/);
+    const m = window.location.pathname.match(/\/(dataset|variables|table|regression|correlation|report)$/);
     return (m?.[1] as Page) ?? "home";
   });
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [schema, setSchema] = useState<VariableSchema[]>([]);
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
   const [regression, setRegression] = useState<RegressionWorkspace>({ outcome: "", predictors: [], confidenceLevel: 0.95, cutoff: 0.5, result: null });
+  const [correlation, setCorrelation] = useState<CorrelationWorkspace>({ variables: [], method: "auto", result: null });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [projectName, setProjectName] = useState("Новое исследование");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -671,6 +679,9 @@ function App() {
           )}
           {page === "regression" && dataset && (
             <RegressionPage dataset={dataset} schema={schema} workspace={regression} setWorkspace={setRegression} onOpenReport={() => setPage("report")} />
+          )}
+          {page === "correlation" && dataset && (
+            <CorrelationPage dataset={dataset} schema={schema} workspace={correlation} setWorkspace={setCorrelation} />
           )}
           {page === "report" && dataset && (
             <ReportPreviewPage slides={slides} schema={schema} regression={regression} onExport={exportReport} />
@@ -1189,6 +1200,172 @@ function TablePage({
         </div>,
         document.body,
       )}
+    </section>
+  );
+}
+
+// ─── Correlation heatmap color ───────────────────────────────────────────────
+function corrColor(r: number | null): string {
+  if (r === null || isNaN(r)) return "#f0f2f5";
+  const abs = Math.abs(r);
+  return r >= 0
+    ? `hsl(217,${Math.round(abs * 75)}%,${Math.round(100 - abs * 36)}%)`
+    : `hsl(350,${Math.round(abs * 75)}%,${Math.round(100 - abs * 36)}%)`;
+}
+
+function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  workspace: CorrelationWorkspace;
+  setWorkspace: (w: CorrelationWorkspace | ((p: CorrelationWorkspace) => CorrelationWorkspace)) => void;
+}) {
+  const { variables, method, result } = workspace;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const eligible = schema.filter((v) => v.role !== "id" && v.type !== "text");
+
+  const toggle = (name: string) =>
+    setWorkspace((p) => ({
+      ...p,
+      variables: p.variables.includes(name) ? p.variables.filter((v) => v !== name) : [...p.variables, name],
+    }));
+
+  const run = useCallback(async () => {
+    if (variables.length < 2) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setBusy(true); setError("");
+    try {
+      const res = await api.correlation(
+        dataset.rows, variables,
+        Object.fromEntries(schema.map((v) => [v.name, v])),
+        method, ctrl.signal,
+      );
+      setWorkspace((p) => ({ ...p, result: res }));
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally { setBusy(false); }
+  }, [dataset, variables, method, schema, setWorkspace]);
+
+  useEffect(() => {
+    if (variables.length < 2) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(run, 700);
+    return () => clearTimeout(timerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variables, method]);
+
+  const vars = result?.variables ?? [];
+  const labels = result?.labels ?? {};
+  const matrix = result?.matrix ?? {};
+
+  return (
+    <section className="page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">03 · Корреляционный анализ</span>
+          <h1>Корреляции</h1>
+          <p>Выберите переменные — матрица рассчитается автоматически.</p>
+        </div>
+      </div>
+      <div className="analysis-layout">
+        <div className="analysis-main">
+          {busy && <div className="corr-busy"><span className="spinner" /> Считаю…</div>}
+          {error && <div className="corr-error">{error}</div>}
+          {!busy && result && (
+            <div className="corr-wrap">
+              <div className="corr-meta">
+                <span>Метод: <strong>{result.method === "pearson" ? "Пирсон (r)" : "Спирмен (ρ)"}</strong></span>
+                <span>N = {result.n}</span>
+              </div>
+              <div className="corr-scroll">
+                <table className="corr-table">
+                  <thead>
+                    <tr>
+                      <th />
+                      {vars.map((v) => (
+                        <th key={v}><span className="corr-colhead">{labels[v] ?? v}</span></th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vars.map((row) => (
+                      <tr key={row}>
+                        <td className="corr-rowlabel">{labels[row] ?? row}</td>
+                        {vars.map((col) => {
+                          const cell = matrix[row]?.[col];
+                          const isDiag = row === col;
+                          return (
+                            <td
+                              key={col}
+                              className={`corr-cell${isDiag ? " corr-diag" : ""}`}
+                              style={{ background: isDiag ? "#eef2f7" : corrColor(cell?.r ?? null) }}
+                              title={cell?.r != null ? `r = ${cell.r}  p = ${cell.p}  n = ${cell.n}` : ""}
+                            >
+                              {isDiag ? <span className="corr-diag-dot">—</span> : cell?.r != null ? (
+                                <><span className="corr-r">{cell.r.toFixed(2)}</span><span className="corr-stars">{cell.stars}</span></>
+                              ) : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="corr-legend">
+                <span>* p&lt;0.05</span><span>** p&lt;0.01</span><span>*** p&lt;0.001</span>
+                <div className="corr-scale">
+                  <span>−1</span>
+                  <div className="corr-scale-neg" />
+                  <span>0</span>
+                  <div className="corr-scale-pos" />
+                  <span>+1</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {!busy && !result && variables.length < 2 && (
+            <div className="empty-analysis">
+              <div className="empty-analysis-icon">⌁</div>
+              <h2>Выберите переменные</h2>
+              <p>Отметьте хотя бы 2 переменные справа — матрица корреляций рассчитается автоматически.</p>
+            </div>
+          )}
+        </div>
+        <aside className="inspector">
+          <div className="editor-title"><span className="eyebrow">Настройки</span><h2>Параметры</h2></div>
+          <label className="field">
+            <span>Метод</span>
+            <select value={method} onChange={(e) => setWorkspace((p) => ({ ...p, method: e.target.value as CorrelationWorkspace["method"], result: null }))}>
+              <option value="auto">Авто (Shapiro–Wilk)</option>
+              <option value="pearson">Пирсон (r) — нормальное распределение</option>
+              <option value="spearman">Спирмен (ρ) — любое распределение</option>
+            </select>
+          </label>
+          <div className="variable-picker">
+            <div className="picker-head">
+              <span>Переменные · {variables.length} выбрано</span>
+              <button onClick={() => setWorkspace((p) => ({ ...p, variables: p.variables.length === eligible.length ? [] : eligible.map((v) => v.name), result: null }))}>
+                {variables.length === eligible.length ? "Снять все" : "Выбрать все"}
+              </button>
+            </div>
+            <p className="picker-hint">Рекомендуется числовые переменные. Категориальные учитываются ограниченно.</p>
+            {eligible.map((v) => (
+              <div key={v.name} className={`variable-choice${variables.includes(v.name) ? " selected" : ""}`}>
+                <label>
+                  <input type="checkbox" checked={variables.includes(v.name)} onChange={() => toggle(v.name)} />
+                  <span>{v.label}<small>{v.type} · пропуски {v.missing}</small></span>
+                </label>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }
