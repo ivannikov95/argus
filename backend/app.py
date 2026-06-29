@@ -55,8 +55,9 @@ class ProjectSaveRequest(BaseModel):
     file_name: str = "dataset"
     rows: list[dict[str, Any]]
     variable_overrides: dict[str, dict[str, Any]] = {}
-    last_analysis: dict[str, Any] | None = None
-    table_settings: dict[str, Any] = {}
+    slides: list[dict[str, Any]] = []          # all table slides
+    last_analysis: dict[str, Any] | None = None  # backward compat
+    table_settings: dict[str, Any] = {}          # backward compat
 
 
 class ExportRequest(BaseModel):
@@ -505,6 +506,17 @@ def load_project(payload: dict[str, str]) -> dict[str, Any]:
     if not path.exists():
         raise HTTPException(404, "Проект не найден")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.delete("/api/project/{project_id}")
+def delete_project(project_id: str) -> dict[str, str]:
+    if not re.fullmatch(r"[a-zA-Zа-яА-Я0-9_-]+", project_id):
+        raise HTTPException(400, "Некорректный идентификатор проекта")
+    path = PROJECTS_DIR / f"{project_id}.json"
+    if not path.exists():
+        raise HTTPException(404, "Проект не найден")
+    path.unlink()
+    return {"status": "deleted"}
 
 
 def _apply_tnr(run: Any, size: float, bold: bool | None = None) -> None:

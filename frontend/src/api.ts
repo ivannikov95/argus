@@ -10,8 +10,15 @@ export interface ProjectMeta {
 export interface SavedProject extends ProjectMeta {
   rows: Record<string, unknown>[];
   variable_overrides: Record<string, unknown>;
-  last_analysis: TableOneAnalysis | null;
-  table_settings: Record<string, unknown>;
+  slides: Array<{
+    id: string;
+    group: string | null;
+    selected: string[];
+    settings: Record<string, unknown>;
+    analysis: TableOneAnalysis | null;
+  }>;
+  last_analysis: TableOneAnalysis | null;  // backward compat
+  table_settings: Record<string, unknown>;  // backward compat
 }
 
 export interface ExportOptions {
@@ -99,6 +106,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_id: projectId }),
     }).then(parse<SavedProject>),
+
+  deleteProject: (projectId: string) =>
+    fetch(`/api/project/${projectId}`, { method: "DELETE" }).then(parse<{ status: string }>),
 
   exportDocx: async (options: ExportOptions) => {
     const response = await fetch("/api/export/table-one.docx", {

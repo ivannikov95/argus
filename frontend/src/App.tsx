@@ -206,23 +206,31 @@ function App() {
       const mergedSchema = ds.schema.map((col) => overrides[col.name] ? { ...col, ...overrides[col.name] } : col);
       setDataset(ds);
       setSchema(mergedSchema);
-      const groupCol =
-        mergedSchema.find((v) => v.role === "group")?.name ??
-        mergedSchema.find((v) => ["binary", "categorical"].includes(v.type) && v.role !== "id" && v.unique <= 8)?.name ??
-        null;
-      const loadedSelected = mergedSchema
-        .filter((v) => v.role !== "id" && v.type !== "text" && v.name !== groupCol)
-        .map((v) => v.name);
-      const loadedSettings = saved.table_settings
-        ? { ...DEFAULT_SETTINGS, ...(saved.table_settings as Partial<TableEditorSettings>) }
-        : { ...DEFAULT_SETTINGS };
-      setSlides([makeSlide({
-        id: "s1",
-        group: groupCol,
-        selected: loadedSelected,
-        settings: loadedSettings,
-        analysis: (saved.last_analysis as TableOneAnalysis) ?? null,
-      })]);
+      if (saved.slides && saved.slides.length > 0) {
+        setSlides(saved.slides.map((s) => makeSlide({
+          id: s.id || `s${Math.random().toString(36).slice(2)}`,
+          group: s.group ?? null,
+          selected: (s.selected as string[]) ?? [],
+          settings: { ...DEFAULT_SETTINGS, ...(s.settings as Partial<TableEditorSettings>) },
+          analysis: (s.analysis as TableOneAnalysis) ?? null,
+        })));
+      } else {
+        // backward compat: old saves without slides array
+        const groupCol =
+          mergedSchema.find((v) => v.role === "group")?.name ??
+          mergedSchema.find((v) => ["binary", "categorical"].includes(v.type) && v.role !== "id" && v.unique <= 8)?.name ??
+          null;
+        const loadedSelected = mergedSchema
+          .filter((v) => v.role !== "id" && v.type !== "text" && v.name !== groupCol)
+          .map((v) => v.name);
+        setSlides([makeSlide({
+          id: "s1",
+          group: groupCol,
+          selected: loadedSelected,
+          settings: { ...DEFAULT_SETTINGS, ...(saved.table_settings as Partial<TableEditorSettings>) },
+          analysis: (saved.last_analysis as TableOneAnalysis) ?? null,
+        })]);
+      }
       setCurrentIndex(0);
       setProjectName(saved.project_name);
       setCurrentProjectId(saved.project_id);
@@ -264,9 +272,17 @@ function App() {
     file_name: dataset!.file_name,
     rows: dataset!.rows,
     variable_overrides: Object.fromEntries(schema.map((item) => [item.name, item])),
-    last_analysis: analysis,
-    table_settings: tableSettings,
-  }), [dataset, schema, analysis, tableSettings]);
+    slides: slides.map((s) => ({
+      id: s.id,
+      group: s.group,
+      selected: s.selected,
+      settings: s.settings,
+      analysis: s.analysis,
+    })),
+    // backward compat fields
+    last_analysis: slides[0]?.analysis ?? null,
+    table_settings: slides[0]?.settings ?? {},
+  }), [dataset, schema, slides]);
 
   // silent auto-save to existing project
   const silentSave = useCallback(async (pid: string) => {
@@ -291,6 +307,20 @@ function App() {
     return () => clearTimeout(autoSaveTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataset, schema, slides, projectName]);
+
+  const deleteProject = async (projectId: string, projectNameLabel: string) => {
+    if (!window.confirm(`Удалить проект «${projectNameLabel}»? Это действие нельзя отменить.`)) return;
+    try {
+      await api.deleteProject(projectId);
+      if (currentProjectId === projectId) {
+        setCurrentProjectId(null);
+        setSaveStatus("dirty");
+      }
+      refreshProjects();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Не удалось удалить проект");
+    }
+  };
 
   // explicit "Save As" — creates a new project file
   const saveAs = async (name: string) => {
@@ -431,6 +461,7 @@ function App() {
               onImport={() => inputRef.current?.click()}
               onDemo={loadDemo}
               onLoadProject={loadProject}
+              onDeleteProject={deleteProject}
               hasData={!!dataset}
               onContinue={() => setPage(dataset ? "dataset" : "home")}
             />
@@ -511,9 +542,10 @@ const HV_ROWS = [
   ["ФВЛЖ, M ± SD", "52,3 ± 8,1", "53,1 ± 7,9", "51,4 ± 8,4", "0,047"],
 ];
 
-function HomePage({ savedProjects, onImport, onDemo, onLoadProject, hasData, onContinue }: {
+function HomePage({ savedProjects, onImport, onDemo, onLoadProject, onDeleteProject, hasData, onContinue }: {
   savedProjects: ProjectMeta[]; onImport: () => void; onDemo: () => void;
-  onLoadProject: (id: string) => void; hasData: boolean; onContinue: () => void;
+  onLoadProject: (id: string) => void; onDeleteProject: (id: string, name: string) => void;
+  hasData: boolean; onContinue: () => void;
 }) {
   return (
     <section className="home-page">
@@ -585,16 +617,23 @@ function HomePage({ savedProjects, onImport, onDemo, onLoadProject, hasData, onC
             </div>
             <div className="home-projects-grid">
               {savedProjects.map((p, i) => (
-                <button key={p.project_id} className="project-card" onClick={() => onLoadProject(p.project_id)}>
-                  <div className="project-card-thumb" style={{ background: CARD_GRADIENTS[i % CARD_GRADIENTS.length] }}>
-                    <span className="project-card-initial">{p.project_name.charAt(0).toUpperCase()}</span>
-                  </div>
-                  <div className="project-card-body">
-                    <strong>{p.project_name}</strong>
-                    <span>{p.file_name}</span>
-                    <small>{new Date(p.saved_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</small>
-                  </div>
-                </button>
+                <div key={p.project_id} className="project-card-wrap">
+                  <button className="project-card" onClick={() => onLoadProject(p.project_id)}>
+                    <div className="project-card-thumb" style={{ background: CARD_GRADIENTS[i % CARD_GRADIENTS.length] }}>
+                      <span className="project-card-initial">{p.project_name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="project-card-body">
+                      <strong>{p.project_name}</strong>
+                      <span>{p.file_name}</span>
+                      <small>{new Date(p.saved_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</small>
+                    </div>
+                  </button>
+                  <button
+                    className="project-card-delete"
+                    title="Удалить проект"
+                    onClick={(e) => { e.stopPropagation(); onDeleteProject(p.project_id, p.project_name); }}
+                  >×</button>
+                </div>
               ))}
             </div>
           </div>

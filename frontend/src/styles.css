@@ -298,7 +298,11 @@ textarea.editor-input.small { min-height: 42px; }
 
 /* ── Project cards ────────────────────────────────────────── */
 .home-projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; }
-.project-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 13px; background: white; overflow: hidden; cursor: pointer; text-align: left; padding: 0; transition: border-color .15s, box-shadow .15s, transform .15s; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.project-card-wrap { position: relative; }
+.project-card-delete { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: none; border-radius: 50%; background: rgba(0,0,0,.35); color: white; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; display: grid; place-items: center; z-index: 2; }
+.project-card-wrap:hover .project-card-delete { opacity: 1; }
+.project-card-delete:hover { background: var(--red); }
+.project-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 13px; background: white; overflow: hidden; cursor: pointer; text-align: left; padding: 0; width: 100%; transition: border-color .15s, box-shadow .15s, transform .15s; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 .project-card:hover { border-color: var(--blue); box-shadow: 0 6px 24px rgba(7,84,216,.14); transform: translateY(-3px); }
 .project-card-thumb { height: 110px; flex-shrink: 0; display: grid; place-items: center; }
 .project-card-initial { font-size: 32px; font-weight: 800; color: rgba(255,255,255,.28); }
