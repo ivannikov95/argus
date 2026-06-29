@@ -2073,12 +2073,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                       ? <LogisticForestPlot result={workspace.multiResult} labels={labels} />
                       : <div className="lgt-forest-empty">Добавьте ≥ 2 предиктора в многофакторную модель</div>}
                   </div>
-                  <div className="lgt-panel lgt-panel-export">
-                    <div className="lgt-panel-title">Экспорт</div>
-                    <p className="lgt-export-hint">Таблица публикационного формата</p>
-                    <button className="button primary lgt-export-btn" disabled>Скачать DOCX</button>
-                    <button className="button secondary lgt-export-btn" disabled>Копировать LaTeX</button>
-                  </div>
+
                 </div>
               </div>
             </div>
