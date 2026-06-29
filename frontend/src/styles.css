@@ -779,8 +779,8 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-legend { display: flex; align-items: center; gap: 5px; margin-left: auto; font-size: 10px; }
 .lgt-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 .lgt-dot-ns { background: #fee2e2; border: 1px solid #ef4444; }
-.lgt-panels { display: grid; grid-template-columns: 1fr 1.4fr 200px; gap: 12px; }
-.lgt-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; background: #fff; }
+.lgt-panels { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; align-items: stretch; }
+.lgt-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; background: #fff; display: flex; flex-direction: column; }
 .lgt-panel-title { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 8px; }
 .lgt-insight-text { font-size: 12px; color: #4b5563; line-height: 1.6; margin: 0; }
 .lgt-panel-export { background: #1d2430; border-color: #1d2430; }
@@ -789,3 +789,10 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-export-btn { width: 100%; margin-bottom: 6px; justify-content: center; font-size: 11px; }
 .lgt-forest-empty { display: flex; align-items: center; justify-content: center; min-height: 100px; color: #9ca3af; font-size: 11px; text-align: center; }
 .forest-plot-svg { width: 100%; height: auto; display: block; }
+.lgt-drag-handle { color: #d1d5db; margin-right: 6px; cursor: grab; font-size: 13px; user-select: none; }
+.lgt-row { cursor: default; }
+.lgt-row[draggable] { cursor: grab; }
+.lgt-row[draggable]:active { cursor: grabbing; }
+.lgt-row--drag-over { outline: 2px solid #6366f1; outline-offset: -2px; background: #eef2ff; }
+.lgt-panel-insight { justify-content: flex-start; }
+.lgt-insight-text { flex: 1; }

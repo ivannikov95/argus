@@ -1855,6 +1855,8 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   const [search, setSearch] = useState("");
   const [bgUnivariate, setBgUnivariate] = useState<Record<string, (LogisticUniResult & { error?: string })>>({});
   const [bgLoading, setBgLoading] = useState(false);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const multiAbortRef = useRef<AbortController | null>(null);
   const bgAbortRef = useRef<AbortController | null>(null);
 
@@ -1912,6 +1914,20 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
     return () => ctrl.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.outcome, multivariatePredictors.join(","), dataset]);
+
+  // ── drag-to-reorder ────────────────────────────────────────────────────────
+  const onDragEnd = () => {
+    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+      setWorkspace((prev) => {
+        const rows = [...prev.rows];
+        const [moved] = rows.splice(dragIdx, 1);
+        rows.splice(dragOverIdx, 0, moved);
+        return { ...prev, rows };
+      });
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
 
   // ── add / remove ───────────────────────────────────────────────────────────
   const togglePredictor = (name: string) => {
@@ -2025,11 +2041,21 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                       {workspace.rows.length === 0 && (
                         <tr><td colSpan={6} className="lgt-empty-row">Выберите предикторы слева →</td></tr>
                       )}
-                      {workspace.rows.map((row) => {
+                      {workspace.rows.map((row, i) => {
                         const mc = multiCoeffs[row.predictor];
                         return (
-                          <tr key={row.predictor} className="lgt-row">
-                            <td className="lgt-td-var">{labels[row.predictor] || row.predictor}</td>
+                          <tr
+                            key={row.predictor}
+                            className={`lgt-row${dragOverIdx === i && dragIdx !== i ? " lgt-row--drag-over" : ""}`}
+                            draggable
+                            onDragStart={() => setDragIdx(i)}
+                            onDragOver={(e) => { e.preventDefault(); setDragOverIdx(i); }}
+                            onDragEnd={onDragEnd}
+                          >
+                            <td className="lgt-td-var">
+                              <span className="lgt-drag-handle">⠿</span>
+                              {labels[row.predictor] || row.predictor}
+                            </td>
                             <td className="lgt-td-or">
                               {row.univariateLoading ? <span className="lgt-loading">…</span>
                                 : row.univariateError ? <span className="lgt-error">!</span>
@@ -2063,17 +2089,16 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                 </div>
 
                 <div className="lgt-panels">
-                  <div className="lgt-panel lgt-panel-insight">
-                    <div className="lgt-panel-title">Аналитическое резюме</div>
-                    <p className="lgt-insight-text">{insight}</p>
-                  </div>
                   <div className="lgt-panel lgt-panel-forest">
                     <div className="lgt-panel-title">Forest Plot</div>
                     {workspace.multiResult
                       ? <LogisticForestPlot result={workspace.multiResult} labels={labels} />
                       : <div className="lgt-forest-empty">Добавьте ≥ 2 предиктора в многофакторную модель</div>}
                   </div>
-
+                  <div className="lgt-panel lgt-panel-insight">
+                    <div className="lgt-panel-title">Аналитическое резюме</div>
+                    <p className="lgt-insight-text">{insight}</p>
+                  </div>
                 </div>
               </div>
             </div>
