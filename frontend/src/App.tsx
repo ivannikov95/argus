@@ -1856,7 +1856,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   const [bgUnivariate, setBgUnivariate] = useState<Record<string, (LogisticUniResult & { error?: string })>>({});
   const [bgLoading, setBgLoading] = useState(false);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [dropPos, setDropPos] = useState<{ idx: number; before: boolean } | null>(null);
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const outcomeRef = useRef<HTMLDivElement>(null);
   const multiAbortRef = useRef<AbortController | null>(null);
@@ -1925,16 +1925,20 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
 
   // ── drag-to-reorder ────────────────────────────────────────────────────────
   const onDragEnd = () => {
-    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
-      setWorkspace((prev) => {
-        const rows = [...prev.rows];
-        const [moved] = rows.splice(dragIdx, 1);
-        rows.splice(dragOverIdx, 0, moved);
-        return { ...prev, rows };
-      });
+    if (dragIdx !== null && dropPos !== null) {
+      const insertAt = dropPos.before ? dropPos.idx : dropPos.idx + 1;
+      const adjustedInsert = insertAt > dragIdx ? insertAt - 1 : insertAt;
+      if (adjustedInsert !== dragIdx) {
+        setWorkspace((prev) => {
+          const rows = [...prev.rows];
+          const [moved] = rows.splice(dragIdx, 1);
+          rows.splice(adjustedInsert, 0, moved);
+          return { ...prev, rows };
+        });
+      }
     }
     setDragIdx(null);
-    setDragOverIdx(null);
+    setDropPos(null);
   };
 
   // ── add / remove ───────────────────────────────────────────────────────────
@@ -2079,13 +2083,21 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                       )}
                       {workspace.rows.map((row, i) => {
                         const mc = multiCoeffs[row.predictor];
+                        const isDragging = dragIdx === i;
+                        const showBefore = dropPos?.idx === i && dropPos.before && !isDragging;
+                        const showAfter  = dropPos?.idx === i && !dropPos.before && !isDragging;
                         return (
                           <tr
                             key={row.predictor}
-                            className={`lgt-row${dragOverIdx === i && dragIdx !== i ? " lgt-row--drag-over" : ""}`}
+                            className={`lgt-row${isDragging ? " lgt-row--dragging" : ""}${showBefore ? " lgt-row--drop-before" : ""}${showAfter ? " lgt-row--drop-after" : ""}`}
                             draggable
-                            onDragStart={() => setDragIdx(i)}
-                            onDragOver={(e) => { e.preventDefault(); setDragOverIdx(i); }}
+                            onDragStart={(e) => { setDragIdx(i); e.dataTransfer.effectAllowed = "move"; }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setDropPos({ idx: i, before: e.clientY < rect.top + rect.height / 2 });
+                            }}
+                            onDragLeave={() => setDropPos(null)}
                             onDragEnd={onDragEnd}
                           >
                             <td className="lgt-td-var">

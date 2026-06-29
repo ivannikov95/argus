@@ -792,7 +792,9 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-row { cursor: default; }
 .lgt-row[draggable] { cursor: grab; }
 .lgt-row[draggable]:active { cursor: grabbing; }
-.lgt-row--drag-over { outline: 2px solid #6366f1; outline-offset: -2px; background: #eef2ff; }
+.lgt-row--dragging { opacity: 0.35; }
+.lgt-row--drop-before { box-shadow: inset 0 3px 0 0 #6366f1; }
+.lgt-row--drop-after  { box-shadow: inset 0 -3px 0 0 #6366f1; }
 .lgt-panel-insight { justify-content: flex-start; }
 .lgt-insight-text { flex: 1; }
 
