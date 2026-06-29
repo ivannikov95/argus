@@ -288,7 +288,7 @@ function App() {
         numericTest: s.settings.numericTest,
         categoricalTest: s.settings.categoricalTest,
         confidenceLevel: s.settings.confidenceLevel,
-      });
+      }, Object.fromEntries(schema.map((v) => [v.name, v])));
       patchSlide(targetIndex, { analysis: result });
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Ошибка расчёта");
@@ -525,7 +525,7 @@ function App() {
             />
           )}
           {page === "variables" && dataset && (
-            <VariablesPage schema={schema} selected={selected} onSelected={setSelected} onUpdate={updateVariable} onContinue={() => setPage("table")} />
+            <VariablesPage schema={schema} onUpdate={updateVariable} onContinue={() => setPage("table")} />
           )}
           {page === "table" && dataset && (
             <TablePage
@@ -812,16 +812,14 @@ function DatasetPage({ dataset, onUpload, onOpenVariables, onEditCell }: {
   );
 }
 
-function VariablesPage({ schema, selected, onSelected, onUpdate, onContinue }: { schema: VariableSchema[]; selected: string[]; onSelected: (v: string[]) => void; onUpdate: (name: string, patch: Partial<VariableSchema>) => void; onContinue: () => void }) {
-  const toggle = (name: string) => onSelected(selected.includes(name) ? selected.filter((v) => v !== name) : [...selected, name]);
+function VariablesPage({ schema, onUpdate, onContinue }: { schema: VariableSchema[]; onUpdate: (name: string, patch: Partial<VariableSchema>) => void; onContinue: () => void }) {
   return (
     <section className="page">
-      <div className="page-heading"><div><span className="eyebrow">02 · Словарь данных</span><h1>Переменные</h1><p>Подтвердите семантику: программа не должна угадывать важные решения молча.</p></div><button className="button primary" onClick={onContinue}>Перейти к Table 1</button></div>
+      <div className="page-heading"><div><span className="eyebrow">02 · Словарь данных</span><h1>Переменные</h1><p>Подтвердите семантику: укажите правильный тип и роль каждой переменной перед анализом.</p></div><button className="button primary" onClick={onContinue}>Перейти к Table 1</button></div>
       <div className="panel variable-panel">
-        <div className="variable-head variable-row"><span>В анализ</span><span>Имя и подпись</span><span>Тип</span><span>Роль</span><span>Пропуски</span><span>Уникальных</span></div>
+        <div className="variable-head variable-row"><span>Имя и подпись</span><span>Тип</span><span>Роль</span><span>Пропуски</span><span>Уникальных</span></div>
         {schema.map((item) => (
           <div className="variable-row" key={item.name}>
-            <label className="check"><input type="checkbox" checked={selected.includes(item.name)} disabled={item.role === "id" || item.type === "text"} onChange={() => toggle(item.name)} /><span /></label>
             <div><code>{item.name}</code><input value={item.label} onChange={(e) => onUpdate(item.name, { label: e.target.value })} aria-label={`Подпись ${item.name}`} /></div>
             <select value={item.type} onChange={(e) => onUpdate(item.name, { type: e.target.value as VariableSchema["type"] })}><option value="numeric">Числовая</option><option value="categorical">Категориальная</option><option value="binary">Бинарная</option><option value="text">Текст</option></select>
             <select value={item.role} onChange={(e) => onUpdate(item.name, { role: e.target.value as VariableSchema["role"] })}><option value="feature">Предиктор</option><option value="group">Группа</option><option value="outcome">Исход</option><option value="id">ID</option></select>

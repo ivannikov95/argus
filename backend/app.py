@@ -43,6 +43,7 @@ class TableOneRequest(BaseModel):
     rows: list[dict[str, Any]]
     group_column: str | None = None
     variables: list[str] | None = None
+    variable_overrides: dict[str, dict[str, Any]] = {}
     numeric_presentation: str = "auto"
     numeric_test: str = "auto"
     categorical_test: str = "auto"
@@ -406,6 +407,13 @@ def run_table_one(request: TableOneRequest) -> dict[str, Any]:
     variables = request.variables or list(df.columns)
     variables = [v for v in variables if v in df.columns and v != request.group_column]
     schema = {item["name"]: item for item in (infer_column(df[col]) for col in df.columns)}
+    # Apply user overrides (type/role changes from the Variables page)
+    for col, override in request.variable_overrides.items():
+        if col in schema:
+            if "type" in override:
+                schema[col]["type"] = override["type"]
+            if "role" in override:
+                schema[col]["role"] = override["role"]
     result_rows = []
     for variable in variables:
         kind = schema[variable]["type"]

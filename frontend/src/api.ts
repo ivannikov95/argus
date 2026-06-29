@@ -76,6 +76,7 @@ export const api = {
     groupColumn: string | null,
     variables: string[],
     options: { numericPresentation: string; numericTest: string; categoricalTest: string; confidenceLevel: number },
+    variableOverrides: Record<string, unknown> = {},
   ) =>
     fetch("/api/analyze/table-one", {
       method: "POST",
@@ -84,6 +85,7 @@ export const api = {
         rows,
         group_column: groupColumn,
         variables,
+        variable_overrides: variableOverrides,
         numeric_presentation: options.numericPresentation,
         numeric_test: options.numericTest,
         categorical_test: options.categoricalTest,
