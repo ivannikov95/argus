@@ -430,7 +430,7 @@ def run_table_one(request: TableOneRequest) -> dict[str, Any]:
     groups = []
     if request.group_column:
         def _fmt_group(v: Any) -> str:
-            if isinstance(v, float) and v == int(v):
+            if isinstance(v, float) and not math.isnan(v) and v == int(v):
                 return str(int(v))
             return str(v)
         groups = [_fmt_group(v) for v in df[request.group_column].dropna().unique()]
