@@ -9,14 +9,13 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest"
-  },
-  "devDependencies": {}
+    "react-router-dom": "^7.18.0",
+    "typescript": "latest",
+    "vite": "latest"
+  }
 }
-

@@ -1,4 +1,5 @@
 import { Fragment, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import type { ExportOptions, ProjectMeta } from "./api";
@@ -90,7 +91,14 @@ function makeSlide(overrides: Partial<TableSlide> & { id: string }): TableSlide 
 }
 
 function App() {
-  const [page, setPage] = useState<Page>("home");
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Read URL once synchronously to set correct initial state — no home-page flash
+  const [page, setPage] = useState<Page>(() => {
+    const m = window.location.pathname.match(/\/(dataset|variables|table)$/);
+    return (m?.[1] as Page) ?? "home";
+  });
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [schema, setSchema] = useState<VariableSchema[]>([]);
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
@@ -103,8 +111,14 @@ function App() {
   const [savedProjects, setSavedProjects] = useState<ProjectMeta[]>([]);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
-  // true if we need to restore a session — set synchronously so first render skips home page
-  const [restoring, setRestoring] = useState(() => !!localStorage.getItem("lastProjectId"));
+  // true while loading a project from URL — set synchronously so first render shows spinner
+  const [restoring, setRestoring] = useState(() =>
+    /^\/project\//.test(window.location.pathname)
+  );
+  // project ID extracted from URL for startup load
+  const startupPid = useRef(
+    window.location.pathname.match(/^\/project\/([^/]+)/)?.[1] ?? null
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -173,13 +187,13 @@ function App() {
 
   const refreshProjects = () => { api.listProjects().then(setSavedProjects).catch(() => {}); };
 
-  // On mount: load projects list and restore last session from localStorage
+  // On mount: restore project from URL (e.g. /project/some-id/table on refresh)
   useEffect(() => {
     refreshProjects();
-    const pid = localStorage.getItem("lastProjectId");
+    const pid = startupPid.current;
     if (pid) {
       loadProject(pid)
-        .catch(() => localStorage.removeItem("lastProjectId"))
+        .catch(() => navigate("/", { replace: true }))
         .finally(() => setRestoring(false));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,7 +269,6 @@ function App() {
       setProjectName(saved.project_name);
       skipNextAutoSave.current = true;
       setCurrentProjectId(saved.project_id);
-      localStorage.setItem("lastProjectId", saved.project_id);
       setSaveStatus("saved");
       const hasAny = saved.slides?.some((s) => s.analysis) || !!saved.last_analysis;
       setPage(hasAny ? "table" : "dataset");
@@ -285,11 +298,14 @@ function App() {
     } finally { setBusy(""); }
   }, [dataset, currentIndex, slides, schema]);
 
-  // Persist currentProjectId to localStorage so page refresh restores session
+  // Sync page/project → URL so refresh and sharing links work
   useEffect(() => {
-    if (currentProjectId) localStorage.setItem("lastProjectId", currentProjectId);
-    else localStorage.removeItem("lastProjectId");
-  }, [currentProjectId]);
+    if (restoring) return;
+    const target = page === "home" ? "/" :
+      currentProjectId ? `/project/${currentProjectId}/${page}` : "/";
+    if (location.pathname !== target) navigate(target, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, currentProjectId, restoring]);
 
   // keep a ref to always-fresh runAnalysis to avoid stale closures in the timer
   const runAnalysisRef = useRef(runAnalysis);
