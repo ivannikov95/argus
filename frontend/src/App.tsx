@@ -2022,6 +2022,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
           : (
             <div className="lgt-body">
               {/* ── Left: predictor card picker ── */}
+              <div className="lgt-picker-wrapper">
               <div className="lgt-picker-panel">
                 <div className="lgt-picker-panel-title">
                   Предикторы
@@ -2057,6 +2058,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                   })}
                   {filteredPredictors.length === 0 && <div className="lgt-picker-empty">Ничего не найдено</div>}
                 </div>
+              </div>
               </div>
 
               {/* ── Right: regression table + panels ── */}
