@@ -470,26 +470,14 @@ function App() {
 
       <main>
         <header className="topbar">
+          <button className="topbar-home-btn" onClick={() => setPage("home")} title="На главную">
+            <span className="brand-sign" style={{width:24,height:24,borderRadius:6,fontSize:12}}>M</span>
+          </button>
           <div className="project-title">
-            <span>Проект</span>
             <input value={projectName} onChange={(e) => setProjectName(e.target.value)} aria-label="Название проекта" />
           </div>
           <div className="top-actions">
             <span className="dataset-chip">{dataset ? `${dataset.row_count} × ${dataset.column_count}` : "Нет данных"}</span>
-            {savedProjects.length > 0 && (
-              <select
-                className="project-open-select"
-                value=""
-                onChange={(e) => { if (e.target.value) loadProject(e.target.value); }}
-                disabled={!!busy}
-                aria-label="Открыть сохранённый проект"
-              >
-                <option value="">Открыть проект…</option>
-                {savedProjects.map((p) => (
-                  <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
-                ))}
-              </select>
-            )}
             {dataset && currentProjectId ? (
               <span className={`save-status save-status--${saveStatus}`}>
                 {saveStatus === "saving" ? "⟳ Сохраняется…" : saveStatus === "saved" ? "✓ Сохранено" : "● Не сохранено"}
