@@ -1,0 +1,32 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# User data (saved projects — may contain clinical data)
+data/projects/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Old experiment folders
+medstat_studio_1/
+medstat_studio_2/
+medstat_studio_3/
+medstat_studio_4/
+medstat_studio_5/
+medstat_studio_6/
+medstat_studio_7/
+medstat_studio_8/
+medstat_studio_analytical_lab/
+clinical_precision/
