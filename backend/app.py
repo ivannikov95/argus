@@ -513,9 +513,7 @@ def delete_project(project_id: str) -> dict[str, str]:
     if not re.fullmatch(r"[a-zA-Zа-яА-Я0-9_-]+", project_id):
         raise HTTPException(400, "Некорректный идентификатор проекта")
     path = PROJECTS_DIR / f"{project_id}.json"
-    if not path.exists():
-        raise HTTPException(404, "Проект не найден")
-    path.unlink()
+    path.unlink(missing_ok=True)  # idempotent: already gone = still OK
     return {"status": "deleted"}
 
 

@@ -171,8 +171,17 @@ function App() {
 
   const refreshProjects = () => { api.listProjects().then(setSavedProjects).catch(() => {}); };
 
+  // On mount: load projects list and restore last session from localStorage
+  const loadProjectRef = useRef<(pid: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    refreshProjects();
+    const pid = localStorage.getItem("lastProjectId");
+    if (pid) loadProjectRef.current(pid).catch(() => localStorage.removeItem("lastProjectId"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useMemo(() => { refreshProjects(); }, []);
+  }, []);
+
+  // Keep ref up-to-date so the startup effect always calls the latest version
+  useEffect(() => { loadProjectRef.current = loadProject; });
 
   const loadDemo = async () => {
     setBusy("Загрузка демонстрационных данных…");
@@ -244,8 +253,10 @@ function App() {
       setProjectName(saved.project_name);
       skipNextAutoSave.current = true;
       setCurrentProjectId(saved.project_id);
+      localStorage.setItem("lastProjectId", saved.project_id);
       setSaveStatus("saved");
-      setPage(saved.last_analysis ? "table" : "dataset");
+      const hasAny = saved.slides?.some((s) => s.analysis) || !!saved.last_analysis;
+      setPage(hasAny ? "table" : "dataset");
       setNotice(`Проект «${saved.project_name}» загружен`);
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Не удалось загрузить проект");
@@ -271,6 +282,12 @@ function App() {
       setNotice(e instanceof Error ? e.message : "Ошибка расчёта");
     } finally { setBusy(""); }
   }, [dataset, currentIndex, slides, schema]);
+
+  // Persist currentProjectId to localStorage so page refresh restores session
+  useEffect(() => {
+    if (currentProjectId) localStorage.setItem("lastProjectId", currentProjectId);
+    else localStorage.removeItem("lastProjectId");
+  }, [currentProjectId]);
 
   // keep a ref to always-fresh runAnalysis to avoid stale closures in the timer
   const runAnalysisRef = useRef(runAnalysis);
