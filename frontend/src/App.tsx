@@ -1168,7 +1168,7 @@ function TablePage({
     <section className="analysis-layout">
       <div className="analysis-main">
         <div className="page-heading compact">
-          <div className="heading-title-wrap"><span className="eyebrow">03 · Описательная статистика</span><input className="heading-title-input" value={settings.title} onChange={(e) => updateSettings({ title: e.target.value })} onBlur={() => updateSettings({ title: formatTableCaption(settings.title, slideIndex + 1) })} aria-label="Заголовок таблицы" /><p>Представление, тест и размер эффекта фиксируются для каждой переменной.</p></div>
+          <div className="heading-title-wrap"><span className="eyebrow">03 · Описательная статистика</span><div className="heading-title-input" contentEditable suppressContentEditableWarning onBlur={(e) => { const val = e.currentTarget.textContent?.trim() || ""; updateSettings({ title: formatTableCaption(val || settings.title, slideIndex + 1) }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} ref={(el) => { if (el && el.textContent !== settings.title) el.textContent = settings.title; }} aria-label="Заголовок таблицы" /><p>Представление, тест и размер эффекта фиксируются для каждой переменной.</p></div>
           <div className="slide-nav">
             <button className="slide-arrow" disabled={slideIndex === 0} onClick={onPrevSlide} title="Предыдущая таблица">←</button>
             <span className="slide-counter">{slideIndex + 1} / {slideCount}</span>
