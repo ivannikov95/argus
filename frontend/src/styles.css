@@ -796,3 +796,33 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-row--drag-over { outline: 2px solid #6366f1; outline-offset: -2px; background: #eef2ff; }
 .lgt-panel-insight { justify-content: flex-start; }
 .lgt-insight-text { flex: 1; }
+
+/* ── Logistic page header ─────────────────────────────────────────── */
+.lgt-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid #e5e7eb; }
+.lgt-header-left { display: flex; flex-direction: column; gap: 2px; }
+.lgt-header-title { font-size: 22px; font-weight: 700; color: #111827; margin: 0; letter-spacing: -.3px; }
+.lgt-header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.lgt-outcome-field { display: flex; align-items: center; gap: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px 6px 14px; }
+.lgt-outcome-label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.lgt-outcome-select { border: none; background: transparent; font-size: 13px; font-weight: 500; color: #111827; outline: none; cursor: pointer; max-width: 220px; }
+.lgt-outcome-select:focus { color: #4f46e5; }
+
+/* ── Custom outcome picker ────────────────────────────────────────── */
+.lgt-outcome-picker { position: relative; }
+.lgt-outcome-btn { display: flex; align-items: center; gap: 8px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 8px 12px 8px 6px; cursor: pointer; transition: border-color .15s, box-shadow .15s; min-width: 220px; }
+.lgt-outcome-btn:hover { border-color: #a5b4fc; box-shadow: 0 0 0 3px #eef2ff; }
+.lgt-outcome-btn--open { border-color: #6366f1; box-shadow: 0 0 0 3px #e0e7ff; }
+.lgt-outcome-btn--set { background: #fafafa; }
+.lgt-outcome-pill { background: #6366f1; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; flex-shrink: 0; letter-spacing: .04em; }
+.lgt-outcome-value { flex: 1; font-size: 13px; font-weight: 500; color: #111827; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lgt-outcome-btn:not(.lgt-outcome-btn--set) .lgt-outcome-value { color: #9ca3af; font-weight: 400; }
+.lgt-outcome-chevron { width: 12px; height: 12px; color: #9ca3af; flex-shrink: 0; transition: transform .15s; }
+.lgt-outcome-btn--open .lgt-outcome-chevron { transform: rotate(180deg); color: #6366f1; }
+.lgt-outcome-dropdown { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 100; overflow: hidden; min-width: 240px; }
+.lgt-outcome-option { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 14px; background: none; border: none; cursor: pointer; gap: 12px; transition: background .1s; }
+.lgt-outcome-option:hover { background: #f5f3ff; }
+.lgt-outcome-option--active { background: #eef2ff; }
+.lgt-outcome-option-label { font-size: 13px; font-weight: 500; color: #111827; text-align: left; }
+.lgt-outcome-option--active .lgt-outcome-option-label { color: #4338ca; }
+.lgt-outcome-option-meta { font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0; }
+.lgt-outcome-empty { padding: 12px 14px; font-size: 12px; color: #9ca3af; }

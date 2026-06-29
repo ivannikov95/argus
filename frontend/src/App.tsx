@@ -1857,8 +1857,16 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   const [bgLoading, setBgLoading] = useState(false);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
+  const outcomeRef = useRef<HTMLDivElement>(null);
   const multiAbortRef = useRef<AbortController | null>(null);
   const bgAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (outcomeRef.current && !outcomeRef.current.contains(e.target as Node)) setOutcomeOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const labels = useMemo(() => Object.fromEntries(schema.map((v) => [v.name, v.label])), [schema]);
   const binaryOutcomes = useMemo(() => schema.filter((v) => v.type === "binary" || (v.type === "categorical" && v.unique === 2)), [schema]);
@@ -1958,23 +1966,43 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   return (
     <section className="analysis-layout lgt-layout">
       <div className="analysis-main">
-        <div className="page-heading compact">
-          <div className="heading-title-wrap">
+        <div className="lgt-header">
+          <div className="lgt-header-left">
             <span className="eyebrow">03 · Регрессионный анализ</span>
-            <h1>Логистическая регрессия</h1>
-            <p>Однофакторный и многофакторный анализ предикторов бинарного исхода.</p>
+            <h1 className="lgt-header-title">Логистическая регрессия</h1>
           </div>
-        </div>
-
-        <div className="lgt-outcome-bar">
-          <label className="field">
-            <span>Исход (бинарная переменная)</span>
-            <select value={workspace.outcome} onChange={(e) => setWorkspace({ outcome: e.target.value, rows: [], multiResult: null, multiLoading: false })}>
-              <option value="">— выберите переменную —</option>
-              {binaryOutcomes.map((v) => <option key={v.name} value={v.name}>{v.label} ({v.unique} уровня)</option>)}
-            </select>
-          </label>
-          <span className="lgt-badge">LOGISTIC REGRESSION</span>
+          <div className="lgt-header-right">
+            <div className="lgt-outcome-picker" ref={outcomeRef}>
+              <button
+                className={`lgt-outcome-btn${outcomeOpen ? " lgt-outcome-btn--open" : ""}${workspace.outcome ? " lgt-outcome-btn--set" : ""}`}
+                onClick={() => setOutcomeOpen((v) => !v)}
+              >
+                <span className="lgt-outcome-pill">Исход</span>
+                <span className="lgt-outcome-value">
+                  {workspace.outcome ? (labels[workspace.outcome] || workspace.outcome) : "выберите переменную"}
+                </span>
+                <svg className="lgt-outcome-chevron" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {outcomeOpen && (
+                <div className="lgt-outcome-dropdown">
+                  {binaryOutcomes.length === 0 && <div className="lgt-outcome-empty">Нет бинарных переменных</div>}
+                  {binaryOutcomes.map((v) => (
+                    <button
+                      key={v.name}
+                      className={`lgt-outcome-option${workspace.outcome === v.name ? " lgt-outcome-option--active" : ""}`}
+                      onClick={() => { setWorkspace({ outcome: v.name, rows: [], multiResult: null, multiLoading: false }); setOutcomeOpen(false); }}
+                    >
+                      <span className="lgt-outcome-option-label">{v.label}</span>
+                      <span className="lgt-outcome-option-meta">{v.unique} уровня · n={v.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="lgt-badge">LOGISTIC REGRESSION</span>
+          </div>
         </div>
 
         {!workspace.outcome
