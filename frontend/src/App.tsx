@@ -1142,21 +1142,23 @@ function TablePage({
         <div className={`variable-picker ${dragged ? "is-reordering" : ""}`}>
           <div className="picker-head"><span>Переменные · {selected.filter((name) => availableNames.has(name)).length} выбрано</span><button onClick={() => setSelected(selected.filter((name) => availableNames.has(name)).length === available.length ? [] : available.map((v) => v.name))}>{selected.filter((name) => availableNames.has(name)).length === available.length ? "Снять все" : "Выбрать все"}</button></div>
           <p className="picker-hint">Отмечайте строки и перетаскивайте выбранные переменные за маркер.</p>
-          {pickerVariables.map((variable) => {
-            const isSelected = selected.includes(variable.name);
-            const position = selected.indexOf(variable.name);
-            const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
-            return (
-              <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
-                <button type="button" className="drag-handle" disabled={!isSelected} aria-label={`Перетащить ${variable.label}`} onPointerDown={(e) => startPointerDrag(e, variable.name)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => clearPointerDrag()}>⠿</button>
-                <label><input type="checkbox" checked={isSelected} onChange={() => toggleVariable(variable.name)} /><span>{variable.label}<small>{variable.type} · пропуски {variable.missing}</small></span></label>
-                <div className="reorder-buttons">
-                  <button disabled={!isSelected || position === 0} onClick={() => moveVariable(variable.name, -1)} aria-label={`Поднять ${variable.label}`}>↑</button>
-                  <button disabled={!isSelected || position === selected.length - 1} onClick={() => moveVariable(variable.name, 1)} aria-label={`Опустить ${variable.label}`}>↓</button>
+          <div className="picker-scroll">
+            {pickerVariables.map((variable) => {
+              const isSelected = selected.includes(variable.name);
+              const position = selected.indexOf(variable.name);
+              const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
+              return (
+                <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
+                  <button type="button" className="drag-handle" disabled={!isSelected} aria-label={`Перетащить ${variable.label}`} onPointerDown={(e) => startPointerDrag(e, variable.name)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => clearPointerDrag()}>⠿</button>
+                  <label><input type="checkbox" checked={isSelected} onChange={() => toggleVariable(variable.name)} /><span>{variable.label}<small>{variable.type} · пропуски {variable.missing}</small></span></label>
+                  <div className="reorder-buttons">
+                    <button disabled={!isSelected || position === 0} onClick={() => moveVariable(variable.name, -1)} aria-label={`Поднять ${variable.label}`}>↑</button>
+                    <button disabled={!isSelected || position === selected.length - 1} onClick={() => moveVariable(variable.name, 1)} aria-label={`Опустить ${variable.label}`}>↓</button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
         <section className="editor-section compact-section">
           <h3>Статистика</h3>
@@ -1570,14 +1572,16 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
               </button>
             </div>
             <p className="picker-hint">Рекомендуется числовые переменные. Категориальные учитываются ограниченно.</p>
-            {eligible.map((v) => (
-              <div key={v.name} className={`variable-choice${variables.includes(v.name) ? " selected" : ""}`}>
-                <label>
-                  <input type="checkbox" checked={variables.includes(v.name)} onChange={() => toggle(v.name)} />
-                  <span>{v.label}<small>{v.type} · пропуски {v.missing}</small></span>
-                </label>
-              </div>
-            ))}
+            <div className="picker-scroll">
+              {eligible.map((v) => (
+                <div key={v.name} className={`variable-choice${variables.includes(v.name) ? " selected" : ""}`}>
+                  <label>
+                    <input type="checkbox" checked={variables.includes(v.name)} onChange={() => toggle(v.name)} />
+                    <span>{v.label}<small>{v.type} · пропуски {v.missing}</small></span>
+                  </label>
+                </div>
+              ))}
+            </div>
           </div>
         </aside>
         {hovered && result && (
