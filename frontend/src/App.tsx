@@ -252,29 +252,40 @@ function App() {
     } finally { setBusy(""); }
   };
 
-  const runAnalysis = async () => {
+  const runAnalysis = useCallback(async () => {
     if (!dataset) return;
     const targetIndex = currentIndex;
-    const targetSettings = slide.settings;
-    const targetGroup = slide.group;
-    setBusy("Считаю Table 1 и проверяю предпосылки…");
+    const s = slides[targetIndex];
+    const vars = s.selected.filter((n) => schema.some((v) => v.name === n));
+    if (!vars.length) return;
+    setBusy("Считаю…");
     try {
-      const vars = schema
-        .filter((v) => v.role !== "id" && v.type !== "text" && v.name !== targetGroup)
-        .map((v) => v.name);
-      const result = await api.tableOne(dataset.rows, targetGroup, vars, {
-        numericPresentation: targetSettings.numericPresentation,
-        numericTest: targetSettings.numericTest,
-        categoricalTest: targetSettings.categoricalTest,
-        confidenceLevel: targetSettings.confidenceLevel,
+      const result = await api.tableOne(dataset.rows, s.group, vars, {
+        numericPresentation: s.settings.numericPresentation,
+        numericTest: s.settings.numericTest,
+        categoricalTest: s.settings.categoricalTest,
+        confidenceLevel: s.settings.confidenceLevel,
       });
       patchSlide(targetIndex, { analysis: result });
-      setPage("table");
-      setNotice("Расчёт завершён");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Ошибка расчёта");
     } finally { setBusy(""); }
-  };
+  }, [dataset, currentIndex, slides, schema]);
+
+  // keep a ref to always-fresh runAnalysis to avoid stale closures in the timer
+  const runAnalysisRef = useRef(runAnalysis);
+  useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
+
+  const analysisTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!dataset || !selected.length) return;
+    clearTimeout(analysisTimer.current);
+    analysisTimer.current = setTimeout(() => runAnalysisRef.current(), 700);
+    return () => clearTimeout(analysisTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, group,
+      slide.settings.numericPresentation, slide.settings.numericTest,
+      slide.settings.categoricalTest, slide.settings.confidenceLevel]);
 
   const buildSavePayload = useCallback((name: string, pid?: string) => ({
     ...(pid ? { project_id: pid } : {}),
@@ -461,7 +472,6 @@ function App() {
             ) : dataset ? (
               <button className="button secondary" onClick={() => { setSaveAsName(projectName); setSaveAsOpen(true); }} disabled={!!busy}>Сохранить</button>
             ) : null}
-            <button className="button primary" onClick={runAnalysis} disabled={!dataset || !selected.length || !!busy}>Рассчитать Table 1</button>
           </div>
         </header>
 
@@ -502,7 +512,6 @@ function App() {
               analysis={analysis}
               settings={tableSettings}
               setSettings={setTableSettings}
-              onRun={runAnalysis}
               onExport={exportDocx}
               onExportReport={exportReport}
               slideIndex={currentIndex}
@@ -799,7 +808,7 @@ function VariablesPage({ schema, selected, onSelected, onUpdate, onContinue }: {
 
 function TablePage({
   dataset, schema, candidateGroups, group, setGroup, selected, setSelected,
-  analysis, settings, setSettings, onRun, onExport, onExportReport,
+  analysis, settings, setSettings, onExport, onExportReport,
   slideIndex, slideCount, computedCount, onPrevSlide, onNextSlide, onAddSlide, onDeleteSlide,
 }: {
   dataset: Dataset; schema: VariableSchema[]; candidateGroups: VariableSchema[];
@@ -807,7 +816,7 @@ function TablePage({
   selected: string[]; setSelected: (v: string[]) => void;
   analysis: TableOneAnalysis | null; settings: TableEditorSettings;
   setSettings: (s: TableEditorSettings) => void;
-  onRun: () => void; onExport: () => void; onExportReport: () => void;
+  onExport: () => void; onExportReport: () => void;
   slideIndex: number; slideCount: number; computedCount: number;
   onPrevSlide: () => void; onNextSlide: () => void; onAddSlide: () => void; onDeleteSlide: () => void;
 }) {
@@ -916,7 +925,7 @@ function TablePage({
         </div>
 
         {!analysis
-          ? <div className="empty-analysis"><div>∑</div><h2>Настройте анализ справа</h2><p>Выберите группировку и переменные, затем запустите расчёт.</p><button className="button primary" onClick={onRun}>Рассчитать таблицу</button></div>
+          ? <div className="empty-analysis"><div className="empty-analysis-icon">☰</div><h2>Отметьте переменные справа</h2><p>Поставьте галочку рядом с нужными показателями — таблица рассчитается автоматически.</p></div>
           : (
             <div className={`paper table-font-${settings.font} table-size-${settings.fontSize} table-align-${settings.alignment}`}>
               <div className="paper-title">
@@ -996,7 +1005,6 @@ function TablePage({
           <small className="recalc-hint">Выбор критерия и уровня ДИ применяется после пересчёта.</small>
         </section>
         <div className="method-card"><strong>Автовыбор метода</strong><p>Непрерывные данные: Welch или Mann–Whitney. Категории: χ² или Fisher. Вместе с p показывается размер эффекта.</p></div>
-        <button className="button primary wide" onClick={onRun} disabled={!selected.length}>Пересчитать Table 1</button>
         <section className="editor-section report-composer">
           <h3>Экспорт отчёта</h3>
           {computedCount > 0 ? (

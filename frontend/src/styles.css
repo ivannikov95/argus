@@ -204,10 +204,10 @@ textarea.editor-input.small { min-height: 42px; }
 .slide-counter { min-width: 36px; text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); }
 .button.ghost-danger { border: 1px solid #fccfcf; color: #b42318; background: #fff8f8; font-size: 14px; padding: 0 8px; height: 28px; border-radius: 5px; line-height: 1; }
 .button.ghost-danger:hover:not(:disabled) { background: #fee2e2; border-color: #f87171; }
-.empty-analysis { min-height: 500px; display: grid; place-content: center; justify-items: center; border: 1px dashed #bdc7d6; border-radius: 8px; background: #f8fafc; text-align: center; }
-.empty-analysis > div { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 15px; border-radius: 50%; color: var(--blue); background: var(--blue-soft); font-family: Georgia, serif; font-size: 23px; }
-.empty-analysis h2 { margin: 0; font-size: 16px; }
-.empty-analysis p { margin: 7px 0 18px; color: var(--muted); font-size: 11px; }
+.empty-analysis { min-height: 500px; display: grid; place-content: center; justify-items: center; border: 2px dashed #d0dae7; border-radius: 12px; background: #f5f8fc; text-align: center; }
+.empty-analysis-icon { font-size: 36px; margin-bottom: 16px; opacity: .3; }
+.empty-analysis h2 { margin: 0; font-size: 17px; color: var(--text); font-weight: 600; }
+.empty-analysis p { margin: 10px 0 0; color: var(--muted); font-size: 12px; max-width: 240px; line-height: 1.6; }
 .paper-preview-banner { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; background: #e8f1fd; border-bottom: 1px solid #bcd0f5; font-size: 10px; color: #1a4fa0; border-radius: 3px 3px 0 0; margin: -12px -12px 12px; }
 .paper-preview-banner.add-mode { background: #edf7f0; border-bottom-color: #b0dfc0; color: #1a6641; }
 .paper-preview-banner button { background: none; border: none; color: #1a4fa0; cursor: pointer; font-size: 10px; padding: 0; text-decoration: underline; }
