@@ -1213,6 +1213,75 @@ function corrColor(r: number | null): string {
     : `hsl(350,${Math.round(abs * 75)}%,${Math.round(100 - abs * 36)}%)`;
 }
 
+interface HoveredCell { row: string; col: string; rectRight: number; rectTop: number; }
+
+function ScatterTooltip({ dataset, schema, labels, hovered, result, method }: {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  labels: Record<string, string>;
+  hovered: HoveredCell;
+  result: CorrelationAnalysis;
+  method: string;
+}) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let url: string | null = null;
+    setLoading(true); setImgUrl(null);
+
+    const xValues = dataset.rows.map((r) => {
+      const v = r[hovered.col];
+      const n = typeof v === "string" ? parseFloat(v) : (v as number);
+      return isNaN(n) ? null : n;
+    });
+    const yValues = dataset.rows.map((r) => {
+      const v = r[hovered.row];
+      const n = typeof v === "string" ? parseFloat(v) : (v as number);
+      return isNaN(n) ? null : n;
+    });
+
+    const cell = result.matrix[hovered.row]?.[hovered.col];
+    const xSchema = schema.find((s) => s.name === hovered.col);
+    const ySchema = schema.find((s) => s.name === hovered.row);
+
+    api.scatterUrl(
+      xValues, yValues,
+      xSchema?.label ?? labels[hovered.col] ?? hovered.col,
+      ySchema?.label ?? labels[hovered.row] ?? hovered.row,
+      cell?.r ?? null, cell?.stars ?? "", method,
+    ).then((u) => {
+      url = u;
+      setImgUrl(u);
+    }).catch(() => {}).finally(() => setLoading(false));
+
+    return () => { if (url) URL.revokeObjectURL(url); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hovered.row, hovered.col]);
+
+  const PANEL_W = 316, PANEL_H = 310;
+  const vp = { w: window.innerWidth, h: window.innerHeight };
+  const left = hovered.rectRight + 10 + PANEL_W > vp.w
+    ? hovered.rectRight - PANEL_W - 70
+    : hovered.rectRight + 10;
+  const top = Math.min(Math.max(hovered.rectTop - 20, 8), vp.h - PANEL_H - 8);
+
+  return createPortal(
+    <div className="scatter-tooltip" style={{ left, top, width: PANEL_W }}>
+      <div className="scatter-tip-header">
+        <span className="scatter-tip-x">{labels[hovered.col] ?? hovered.col}</span>
+        <span className="scatter-tip-vs">vs</span>
+        <span className="scatter-tip-y">{labels[hovered.row] ?? hovered.row}</span>
+      </div>
+      <div className="scatter-tip-img-wrap">
+        {loading && <div className="scatter-tip-spinner"><span className="spinner" /></div>}
+        {imgUrl && <img src={imgUrl} className="scatter-tip-img" alt="scatter" />}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
   dataset: Dataset;
   schema: VariableSchema[];
@@ -1222,6 +1291,7 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
   const { variables, method, result } = workspace;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [hovered, setHovered] = useState<HoveredCell | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -1302,9 +1372,13 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
                           return (
                             <td
                               key={col}
-                              className={`corr-cell${isDiag ? " corr-diag" : ""}`}
+                              className={`corr-cell${isDiag ? " corr-diag" : ""}${!isDiag ? " corr-hoverable" : ""}`}
                               style={{ background: isDiag ? "#eef2f7" : corrColor(cell?.r ?? null) }}
-                              title={cell?.r != null ? `r = ${cell.r}  p = ${cell.p}  n = ${cell.n}` : ""}
+                              onMouseEnter={isDiag ? undefined : (e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setHovered({ row, col, rectRight: rect.right, rectTop: rect.top });
+                              }}
+                              onMouseLeave={isDiag ? undefined : () => setHovered(null)}
                             >
                               {isDiag ? <span className="corr-diag-dot">—</span> : cell?.r != null ? (
                                 <><span className="corr-r">{cell.r.toFixed(2)}</span><span className="corr-stars">{cell.stars}</span></>
@@ -1365,6 +1439,9 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
             ))}
           </div>
         </aside>
+        {hovered && result && (
+          <ScatterTooltip dataset={dataset} schema={schema} labels={labels} hovered={hovered} result={result} method={result.method} />
+        )}
       </div>
     </section>
   );

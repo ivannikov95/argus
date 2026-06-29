@@ -20,7 +20,7 @@ from docx.oxml.ns import qn
 from docx.shared import Mm, Pt
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, Field
 from scipy import optimize, stats
@@ -846,6 +846,69 @@ def delete_project(project_id: str) -> dict[str, str]:
     path = PROJECTS_DIR / f"{project_id}.json"
     path.unlink(missing_ok=True)  # idempotent: already gone = still OK
     return {"status": "deleted"}
+
+
+class ScatterRequest(BaseModel):
+    x_values: list[float | None]
+    y_values: list[float | None]
+    x_label: str = ""
+    y_label: str = ""
+    r: float | None = None
+    stars: str = ""
+    method: str = "pearson"
+
+
+@app.post("/api/plot/scatter")
+def scatter_plot(request: ScatterRequest) -> Response:
+    import io
+    import warnings
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    pairs = [
+        (x, y)
+        for x, y in zip(request.x_values, request.y_values)
+        if x is not None and y is not None and not (isinstance(x, float) and x != x) and not (isinstance(y, float) and y != y)
+    ]
+    if len(pairs) < 3:
+        raise HTTPException(400, "Недостаточно данных для графика")
+
+    xs = [p[0] for p in pairs]
+    ys = [p[1] for p in pairs]
+
+    sns.set_theme(style="whitegrid", font_scale=0.9)
+    fig, ax = plt.subplots(figsize=(3.6, 3.2), dpi=130)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sns.regplot(
+            x=xs, y=ys, ax=ax,
+            scatter_kws={"alpha": 0.55, "s": 22, "color": "#2563eb", "linewidths": 0.3, "edgecolors": "#1d4ed8"},
+            line_kws={"color": "#ef4444", "linewidth": 1.8, "alpha": 0.85},
+            ci=95,
+        )
+
+    r_val = f"r = {request.r:.3f}" if request.r is not None else ""
+    stars = request.stars or ""
+    method_label = "Пирсон" if request.method == "pearson" else "Спирмен"
+    title_parts = [method_label]
+    if r_val:
+        title_parts.append(f"{r_val}{stars}")
+    ax.set_title("  ".join(title_parts), fontsize=9, pad=6, color="#344054")
+    ax.set_xlabel(request.x_label or "X", fontsize=8, color="#667085")
+    ax.set_ylabel(request.y_label or "Y", fontsize=8, color="#667085")
+    ax.tick_params(labelsize=7)
+    ax.grid(True, alpha=0.35, linewidth=0.5)
+    fig.tight_layout(pad=1.0)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+
+    return Response(content=buf.read(), media_type="image/png")
 
 
 def _apply_tnr(run: Any, size: float, bold: bool | None = None) -> None:

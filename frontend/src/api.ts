@@ -135,6 +135,25 @@ export const api = {
       body: JSON.stringify({ rows, variables, variable_overrides: variableOverrides, method }),
     }).then(parse<CorrelationAnalysis>),
 
+  scatterUrl: (
+    xValues: (number | null)[],
+    yValues: (number | null)[],
+    xLabel: string,
+    yLabel: string,
+    r: number | null,
+    stars: string,
+    method: string,
+  ): Promise<string> =>
+    fetch("/api/plot/scatter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ x_values: xValues, y_values: yValues, x_label: xLabel, y_label: yLabel, r, stars, method }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Ошибка графика");
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    }),
+
   saveProject: (payload: Record<string, unknown>) =>
     fetch("/api/project/save", {
       method: "POST",
