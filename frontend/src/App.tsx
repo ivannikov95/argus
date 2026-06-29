@@ -1127,9 +1127,8 @@ function TablePage({
                 />
                 <p>{settings.description || "Автоматически сформированный статистический черновик"}</p>
               </div>
-              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((g) => <th key={g.name}>{g.name}<small>n={g.n}</small></th>)}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => { const isSig = row.p_value !== null && row.p_value < 0.05; return <Fragment key={row.variable}><tr className={isSig && analysis.groups.length > 0 ? "sig-row" : ""}><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{row.levels.length ? "" : formatStat(row.groups[g.name])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td>{analysis.groups.length > 0 && row.p_value !== null ? <span className={`p-badge${isSig ? " p-badge--sig" : " p-badge--ns"}`}>{isSig ? (row.p_value < 0.001 ? "p < 0,001" : "p < 0,05") : "p > 0,05"}<span className="p-badge-exact">{formatP(row)}</span></span> : formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className={`category-level${isSig && analysis.groups.length > 0 ? " sig-row-sub" : ""}`} key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{formatStat(level.groups[g.name])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>; })}</tbody></table></div>
+              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((g) => <th key={g.name}>{g.name}<small>n={g.n}</small></th>)}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => <Fragment key={row.variable}><tr><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{row.levels.length ? "" : formatStat(row.groups[g.name])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td className={row.p_value !== null && row.p_value < 0.05 ? "significant" : ""}>{formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{formatStat(level.groups[g.name])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>)}</tbody></table></div>
               {!visibleRows.length && <div className="no-rows">В таблице нет строк — выберите хотя бы одну переменную справа.</div>}
-              {analysis.groups.length > 0 && (() => { const sigCount = visibleRows.filter((r) => r.p_value !== null && r.p_value < 0.05).length; const total = visibleRows.filter((r) => r.p_value !== null).length; return total > 0 ? <div className="sig-summary"><span className="sig-summary-icon">◉</span>{sigCount > 0 ? <><strong>Значимые межгрупповые различия</strong> выявлены в <strong>{sigCount}</strong> из {total} переменных (p&nbsp;&lt;&nbsp;0,05)</> : <>Значимых межгрупповых различий не выявлено ни по одной из {total} переменных (p&nbsp;≥&nbsp;0,05)</>}</div> : null; })()}
               <p className="analysis-note"><strong>Методическое примечание.</strong> {analysis.note} Пропуски исключались отдельно для каждой переменной.</p>
               {settings.footnotes && <p className="custom-footnotes">{settings.footnotes}</p>}
             </div>
@@ -1144,21 +1143,38 @@ function TablePage({
           <div className="picker-head"><span>Переменные · {selected.filter((name) => availableNames.has(name)).length} выбрано</span><button onClick={() => setSelected(selected.filter((name) => availableNames.has(name)).length === available.length ? [] : available.map((v) => v.name))}>{selected.filter((name) => availableNames.has(name)).length === available.length ? "Снять все" : "Выбрать все"}</button></div>
           <p className="picker-hint">Отмечайте строки и перетаскивайте выбранные переменные за маркер.</p>
           <div className="picker-scroll">
-            {pickerVariables.map((variable) => {
-              const isSelected = selected.includes(variable.name);
-              const position = selected.indexOf(variable.name);
-              const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
-              return (
-                <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
-                  <button type="button" className="drag-handle" disabled={!isSelected} aria-label={`Перетащить ${variable.label}`} onPointerDown={(e) => startPointerDrag(e, variable.name)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => clearPointerDrag()}>⠿</button>
-                  <label><input type="checkbox" checked={isSelected} onChange={() => toggleVariable(variable.name)} /><span>{variable.label}<small>{variable.type} · пропуски {variable.missing}</small></span></label>
-                  <div className="reorder-buttons">
-                    <button disabled={!isSelected || position === 0} onClick={() => moveVariable(variable.name, -1)} aria-label={`Поднять ${variable.label}`}>↑</button>
-                    <button disabled={!isSelected || position === selected.length - 1} onClick={() => moveVariable(variable.name, 1)} aria-label={`Опустить ${variable.label}`}>↓</button>
+            {(() => {
+              const pMap = new Map(analysis?.rows.map((r) => [r.variable, r.p_value]) ?? []);
+              const hasGroups = (analysis?.groups.length ?? 0) > 0;
+              return pickerVariables.map((variable) => {
+                const isSelected = selected.includes(variable.name);
+                const position = selected.indexOf(variable.name);
+                const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
+                const pVal = hasGroups ? pMap.get(variable.name) : undefined;
+                const isSig = pVal !== undefined && pVal !== null && pVal < 0.05;
+                return (
+                  <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
+                    <button type="button" className="drag-handle" disabled={!isSelected} aria-label={`Перетащить ${variable.label}`} onPointerDown={(e) => startPointerDrag(e, variable.name)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => clearPointerDrag()}>⠿</button>
+                    <label>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleVariable(variable.name)} />
+                      <span>
+                        {variable.label}
+                        <small>{variable.type} · пропуски {variable.missing}</small>
+                      </span>
+                    </label>
+                    {pVal !== undefined && pVal !== null && (
+                      <span className={`picker-p-badge${isSig ? " picker-p-badge--sig" : " picker-p-badge--ns"}`} title={`p = ${pVal}`}>
+                        {isSig ? (pVal < 0.001 ? "p<0,001" : "p<0,05") : "p>0,05"}
+                      </span>
+                    )}
+                    <div className="reorder-buttons">
+                      <button disabled={!isSelected || position === 0} onClick={() => moveVariable(variable.name, -1)} aria-label={`Поднять ${variable.label}`}>↑</button>
+                      <button disabled={!isSelected || position === selected.length - 1} onClick={() => moveVariable(variable.name, 1)} aria-label={`Опустить ${variable.label}`}>↓</button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
         <section className="editor-section compact-section">
