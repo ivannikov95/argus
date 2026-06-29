@@ -874,7 +874,6 @@ class ScatterRequest(BaseModel):
     method: str = "pearson"
 
 
-@app.post("/api/plot/scatter")
 def _generate_scatter_bytes(
     x_values: list[float | None],
     y_values: list[float | None],
@@ -934,6 +933,7 @@ def _generate_scatter_bytes(
     return buf.read()
 
 
+@app.post("/api/plot/scatter")
 def scatter_plot(request: ScatterRequest) -> Response:
     try:
         data = _generate_scatter_bytes(
