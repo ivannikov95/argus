@@ -10,6 +10,7 @@ import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./d
 interface TableSlide {
   id: string;
   group: string | null;
+  groupLabels: Record<string, string>;
   selected: string[];
   settings: TableEditorSettings;
   analysis: TableOneAnalysis | null;
@@ -129,7 +130,7 @@ function formatTableCaption(value: string, num = 1) {
 }
 
 function makeSlide(overrides: Partial<TableSlide> & { id: string }): TableSlide {
-  return { group: null, selected: [], settings: { ...DEFAULT_SETTINGS }, analysis: null, ...overrides };
+  return { group: null, groupLabels: {}, selected: [], settings: { ...DEFAULT_SETTINGS }, analysis: null, ...overrides };
 }
 
 function slidesForDataset(dataset: Dataset) {
@@ -204,7 +205,8 @@ function App() {
 
   const updateSlide = (patch: Partial<TableSlide>) => patchSlide(currentIndex, patch);
 
-  const setGroup = (v: string | null) => updateSlide({ group: v, analysis: null });
+  const setGroup = (v: string | null) => updateSlide({ group: v, groupLabels: {}, analysis: null });
+  const setGroupLabels = (v: Record<string, string>) => updateSlide({ groupLabels: v });
   const setSelected = (v: string[]) => updateSlide({ selected: v });
   const setTableSettings = (v: TableEditorSettings) => updateSlide({ settings: v });
 
@@ -678,6 +680,8 @@ function App() {
               candidateGroups={candidateGroups}
               group={group}
               setGroup={setGroup}
+              groupLabels={slide.groupLabels}
+              setGroupLabels={setGroupLabels}
               selected={selected}
               setSelected={setSelected}
               analysis={analysis}
@@ -985,12 +989,13 @@ function VariablesPage({ schema, onUpdate, onContinue }: { schema: VariableSchem
 }
 
 function TablePage({
-  dataset, schema, candidateGroups, group, setGroup, selected, setSelected,
+  dataset, schema, candidateGroups, group, setGroup, groupLabels, setGroupLabels, selected, setSelected,
   analysis, settings, setSettings, onExport, onExportReport,
   slideIndex, slideCount, computedCount, onPrevSlide, onNextSlide, onAddSlide, onDeleteSlide,
 }: {
   dataset: Dataset; schema: VariableSchema[]; candidateGroups: VariableSchema[];
   group: string | null; setGroup: (v: string | null) => void;
+  groupLabels: Record<string, string>; setGroupLabels: (v: Record<string, string>) => void;
   selected: string[]; setSelected: (v: string[]) => void;
   analysis: TableOneAnalysis | null; settings: TableEditorSettings;
   setSettings: (s: TableEditorSettings) => void;
@@ -1149,7 +1154,7 @@ function TablePage({
                 />
                 <p>{settings.description || "Автоматически сформированный статистический черновик"}</p>
               </div>
-              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((g) => <th key={g.name}>{labels[analysis.group_column!] ?? analysis.group_column}: {g.name}<small>n={g.n}</small></th>)}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => <Fragment key={row.variable}><tr><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{row.levels.length ? "" : formatStat(row.groups[g.name])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td className={row.p_value !== null && row.p_value < 0.05 ? "significant" : ""}>{formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{formatStat(level.groups[g.name])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>)}</tbody></table></div>
+              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((g) => { const customLabel = groupLabels[g.name]?.trim(); return <th key={g.name}>{customLabel ?? `${labels[analysis.group_column!] ?? analysis.group_column}: ${g.name}`}<small>n={g.n}</small></th>; })}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => <Fragment key={row.variable}><tr><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{row.levels.length ? "" : formatStat(row.groups[g.name])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td className={row.p_value !== null && row.p_value < 0.05 ? "significant" : ""}>{formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{formatStat(level.groups[g.name])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>)}</tbody></table></div>
               {!visibleRows.length && <div className="no-rows">В таблице нет строк — выберите хотя бы одну переменную справа.</div>}
               <p className="analysis-note"><strong>Методическое примечание.</strong> {analysis.note} Пропуски исключались отдельно для каждой переменной.</p>
               {settings.footnotes && <p className="custom-footnotes">{settings.footnotes}</p>}
@@ -1161,6 +1166,24 @@ function TablePage({
       <aside className="inspector">
         <div className="editor-title"><span className="eyebrow">Таблица {slideIndex + 1}</span><h2>Выбор переменных</h2></div>
         <label className="field"><span>Группирующая переменная</span><select value={group ?? ""} onChange={(e) => setGroup(e.target.value || null)}><option value="">Без группировки</option>{candidateGroups.map((v) => <option value={v.name} key={v.name}>{v.label} ({v.unique})</option>)}</select></label>
+        {group && analysis && analysis.groups.length > 0 && (
+          <div className="group-label-editor">
+            <span className="group-label-editor-title">Названия групп</span>
+            {analysis.groups.map((g) => (
+              <div key={g.name} className="group-label-row">
+                <span className="group-label-chip">{g.name}</span>
+                <span className="group-label-arrow">→</span>
+                <input
+                  className="group-label-input"
+                  type="text"
+                  value={groupLabels[g.name] ?? ""}
+                  placeholder={g.name}
+                  onChange={(e) => setGroupLabels({ ...groupLabels, [g.name]: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+        )}
         <div className={`variable-picker ${dragged ? "is-reordering" : ""}`}>
           <div className="picker-head"><span>Переменные · {selected.filter((name) => availableNames.has(name)).length} выбрано</span><button onClick={() => setSelected(selected.filter((name) => availableNames.has(name)).length === available.length ? [] : available.map((v) => v.name))}>{selected.filter((name) => availableNames.has(name)).length === available.length ? "Снять все" : "Выбрать все"}</button></div>
           <p className="picker-hint">Отмечайте строки и перетаскивайте выбранные переменные за маркер.</p>
@@ -1904,7 +1927,7 @@ function ReportPreviewPage({ slides, schema, dataset, regression, correlation, s
             <div className="report-section-label">Раздел {tableIndex + 1} · Описательная статистика</div>
             <h2>{slide.settings.title}</h2>
             {slide.settings.description && <p className="report-description">{slide.settings.description}</p>}
-            <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Показатель</th>{slide.settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((group) => <th key={group.name}>{labels[analysis.group_column!] ?? analysis.group_column}: {group.name}<small>n={group.n}</small></th>)}<th>p-value</th></tr></thead><tbody>
+            <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Показатель</th>{slide.settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((group) => { const cl = slide.groupLabels?.[group.name]?.trim(); return <th key={group.name}>{cl ?? `${labels[analysis.group_column!] ?? analysis.group_column}: ${group.name}`}<small>n={group.n}</small></th>; })}<th>p-value</th></tr></thead><tbody>
               {analysis.rows.map((row) => <Fragment key={row.variable}><tr><td>{labels[row.variable] || row.variable}<small>{row.presentation}</small></td>{slide.settings.showOverall && <td>{row.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{row.groups[group.name]}</td>)}<td>{row.p_display}</td></tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{slide.settings.showOverall && <td>{level.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{level.groups[group.name]}</td>)}<td /></tr>)}</Fragment>)}
             </tbody></table></div>
             <p className="report-method-note">{analysis.note}</p>
