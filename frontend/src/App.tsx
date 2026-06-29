@@ -1748,47 +1748,78 @@ function LogisticForestPlot({ result, labels }: { result: LogisticMultiResult; l
   const allVals = entries.flatMap(([, c]) => [c.or, c.ci_lower, c.ci_upper]).filter(isFinite);
   const rawMin = Math.min(...allVals, 0.5);
   const rawMax = Math.max(...allVals, 2);
-  const pad = (rawMax - rawMin) * 0.05;
+  const pad = (rawMax - rawMin) * 0.08;
   const xMin = Math.max(0.01, rawMin - pad);
   const xMax = rawMax + pad;
 
-  const W = 480, H = Math.max(100, entries.length * 44 + 40);
-  const LEFT = 140, RIGHT = 20, TOP = 20, BOTTOM = 20;
-  const plotW = W - LEFT - RIGHT;
+  const ROW_H = 46;
+  const TOP = 28, BOTTOM = 16;
+  const LABEL_W = 148, PLOT_W = 200, RIGHT_W = 176;
+  const W = LABEL_W + PLOT_W + RIGHT_W;
+  const H = TOP + entries.length * ROW_H + BOTTOM;
+  const PX = LABEL_W; // plot origin x
 
-  const toX = (v: number) => LEFT + (Math.log(v) - Math.log(xMin)) / (Math.log(xMax) - Math.log(xMin)) * plotW;
+  const toX = (v: number) => PX + (Math.log(v) - Math.log(xMin)) / (Math.log(xMax) - Math.log(xMin)) * PLOT_W;
   const nullX = toX(1);
+
+  // header columns
+  const RX1 = LABEL_W + PLOT_W + 8;   // start of right text area
+  const RX2 = RX1 + 80;               // p-value column
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="forest-plot-svg">
-      {/* axis line */}
-      <line x1={LEFT} y1={TOP} x2={LEFT} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
-      <line x1={LEFT} y1={H - BOTTOM} x2={W - RIGHT} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+      {/* header row */}
+      <text x={LABEL_W + PLOT_W / 2} y={TOP - 10} textAnchor="middle" fontSize="9" fontWeight="600" fill="#6b7280">График (лог. шкала)</text>
+      <text x={RX1} y={TOP - 10} fontSize="9" fontWeight="600" fill="#6b7280">ОШ (95% ДИ)</text>
+      <text x={RX2} y={TOP - 10} fontSize="9" fontWeight="600" fill="#6b7280">p-value</text>
+
+      {/* plot area box */}
+      <line x1={PX} y1={TOP} x2={PX} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+      <line x1={PX + PLOT_W} y1={TOP} x2={PX + PLOT_W} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+      <line x1={PX} y1={H - BOTTOM} x2={PX + PLOT_W} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+
       {/* null line */}
-      <line x1={nullX} y1={TOP} x2={nullX} y2={H - BOTTOM} stroke="#94a3b8" strokeWidth="1" strokeDasharray="4 3" />
-      <text x={nullX} y={TOP - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">1.0</text>
+      <line x1={nullX} y1={TOP} x2={nullX} y2={H - BOTTOM} stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
+      <text x={nullX} y={TOP - 2} textAnchor="middle" fontSize="8" fill="#94a3b8">1</text>
+
       {entries.map(([pred, c], i) => {
-        const y = TOP + i * 44 + 22;
-        const x0 = toX(Math.max(c.ci_lower, xMin));
-        const x1 = toX(Math.min(c.ci_upper, xMax));
-        const xOR = toX(c.or);
+        const y = TOP + i * ROW_H + ROW_H / 2;
+        const ciLo = Math.max(c.ci_lower, xMin);
+        const ciHi = Math.min(c.ci_upper, xMax);
+        const orClamped = Math.max(xMin, Math.min(c.or, xMax));
+        const x0 = toX(ciLo);
+        const x1 = toX(ciHi);
+        const xOR = toX(orClamped);
         const sig = c.p_value < 0.05;
         const color = sig ? "#4f46e5" : "#ef4444";
+        const label = labels[pred] || pred;
+        const displayLabel = label.length > 20 ? label.slice(0, 19) + "…" : label;
+        const orText = `${c.or.toFixed(2)} (${c.ci_lower.toFixed(2)}–${c.ci_upper.toFixed(2)})`;
+
         return (
           <g key={pred}>
-            <text x={LEFT - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#374151">
-              {(labels[pred] || pred).length > 18 ? (labels[pred] || pred).slice(0, 17) + "…" : (labels[pred] || pred)}
-            </text>
+            {/* variable name */}
+            <text x={LABEL_W - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#1f2937">{displayLabel}</text>
+            {/* zebra stripe */}
+            {i % 2 === 1 && <rect x={PX} y={y - ROW_H / 2} width={PLOT_W} height={ROW_H} fill="#f9fafb" />}
+            {/* CI line */}
             <line x1={x0} y1={y} x2={x1} y2={y} stroke={color} strokeWidth="2" />
-            <line x1={x0} y1={y - 4} x2={x0} y2={y + 4} stroke={color} strokeWidth="1.5" />
-            <line x1={x1} y1={y - 4} x2={x1} y2={y + 4} stroke={color} strokeWidth="1.5" />
+            <line x1={x0} y1={y - 5} x2={x0} y2={y + 5} stroke={color} strokeWidth="1.5" />
+            <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} stroke={color} strokeWidth="1.5" />
+            {/* OR square */}
             <rect x={xOR - 5} y={y - 5} width="10" height="10" rx="2" fill={color} />
-            <text x={xOR} y={y + 16} textAnchor="middle" fontSize="9" fill={color}>
-              {c.or.toFixed(2)}
-            </text>
+            {/* right-side text: OR (CI) */}
+            <text x={RX1} y={y + 4} fontSize="11" fill={sig ? "#1e3a8a" : "#374151"} fontWeight={sig ? "600" : "400"}>{orText}</text>
+            {/* p-value */}
+            <text x={RX2} y={y + 4} fontSize="11" fill={color} fontWeight="600">{c.p_display}</text>
           </g>
         );
       })}
+
+      {/* bottom axis ticks */}
+      {[xMin, 1, xMax].map((v) => (
+        <text key={v} x={toX(v)} y={H - 2} textAnchor="middle" fontSize="8" fill="#9ca3af">{v < 1 ? v.toFixed(2) : v.toFixed(1)}</text>
+      ))}
     </svg>
   );
 }
@@ -1868,7 +1899,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
   }, [workspace.outcome, dataset]);
 
   // ── multivariate auto-runner ───────────────────────────────────────────────
-  const multivariatePredictors = workspace.rows.filter((r) => r.inMultivariate).map((r) => r.predictor);
+  const multivariatePredictors = workspace.rows.map((r) => r.predictor);
   useEffect(() => {
     if (!workspace.outcome || multivariatePredictors.length < 2) {
       setWorkspace((prev) => ({ ...prev, multiResult: null, multiLoading: false }));
@@ -1895,7 +1926,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
       const univariate = bg && !bg.error ? bg : null;
       setWorkspace((prev) => ({
         ...prev,
-        rows: [...prev.rows, { predictor: name, inMultivariate: false, univariate, univariateLoading: !univariate && !bg, univariateError: bg?.error ?? null }],
+        rows: [...prev.rows, { predictor: name, inMultivariate: true, univariate, univariateLoading: !univariate && !bg, univariateError: bg?.error ?? null }],
       }));
     }
   };
@@ -1983,7 +2014,6 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                       <tr>
                         <th rowSpan={2} className="lgt-th-var">Показатель</th>
                         <th colSpan={2} className="lgt-th-group">Однофакторный анализ</th>
-                        <th className="lgt-th-inc" rowSpan={2}>В модель</th>
                         <th colSpan={2} className="lgt-th-group lgt-th-multi">Многофакторный анализ</th>
                         <th rowSpan={2} className="lgt-th-act"></th>
                       </tr>
@@ -1996,7 +2026,7 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                     </thead>
                     <tbody>
                       {workspace.rows.length === 0 && (
-                        <tr><td colSpan={7} className="lgt-empty-row">Выберите предикторы слева →</td></tr>
+                        <tr><td colSpan={6} className="lgt-empty-row">Выберите предикторы слева →</td></tr>
                       )}
                       {workspace.rows.map((row) => {
                         const mc = multiCoeffs[row.predictor];
@@ -2009,17 +2039,12 @@ function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
                                 : row.univariate ? formatOR(row.univariate.or, row.univariate.ci_lower, row.univariate.ci_upper) : "—"}
                             </td>
                             <td className="lgt-td-p">{row.univariate ? pCell(row.univariate.p_value, row.univariate.p_display) : "—"}</td>
-                            <td className="lgt-td-inc">
-                              <input type="checkbox" className="lgt-checkbox" checked={row.inMultivariate}
-                                onChange={() => setWorkspace((prev) => ({ ...prev, rows: prev.rows.map((r) => r.predictor === row.predictor ? { ...r, inMultivariate: !r.inMultivariate } : r) }))} />
-                            </td>
                             <td className="lgt-td-or lgt-td-multi">
-                              {!row.inMultivariate ? <span className="lgt-muted">—</span>
-                                : workspace.multiLoading ? <span className="lgt-loading">…</span>
+                              {workspace.multiLoading ? <span className="lgt-loading">…</span>
                                 : mc ? formatOR(mc.or, mc.ci_lower, mc.ci_upper) : "—"}
                             </td>
                             <td className="lgt-td-p lgt-td-multi">
-                              {row.inMultivariate && mc ? pCell(mc.p_value, mc.p_display, true) : <span className="lgt-muted">—</span>}
+                              {mc ? pCell(mc.p_value, mc.p_display, true) : <span className="lgt-muted">—</span>}
                             </td>
                             <td className="lgt-td-act">
                               <button className="lgt-del" onClick={() => togglePredictor(row.predictor)} title="Убрать">×</button>
