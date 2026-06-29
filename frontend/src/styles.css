@@ -256,11 +256,12 @@ textarea.editor-input.small { min-height: 42px; }
 /* ─── Significance badge in variable picker ──────────────────────────────── */
 .group-label-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 10px 12px; background: #f8f9fb; border: 1px solid #e5e7eb; border-radius: 8px; }
 .group-label-editor-title { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
-.group-label-row { display: grid; grid-template-columns: 36px 16px 1fr; gap: 6px; align-items: center; }
-.group-label-chip { background: var(--brand-100, #e0e7ff); color: var(--brand-700, #3730a3); border-radius: 5px; padding: 2px 6px; font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-label-row { display: grid; grid-template-columns: 1fr 18px auto; gap: 6px; align-items: center; }
+.group-label-name-input { border: 1.5px solid var(--brand-400, #818cf8); background: var(--brand-50, #eef2ff); color: var(--brand-700, #3730a3); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; outline: none; min-width: 0; }
+.group-label-name-input:focus { border-color: var(--brand-600, #4f46e5); box-shadow: 0 0 0 2px var(--brand-100, #e0e7ff); }
 .group-label-arrow { color: #9ca3af; font-size: 13px; text-align: center; }
-.group-label-input { border: 1px solid #d1d5db; border-radius: 5px; padding: 3px 7px; font-size: 12px; width: 100%; outline: none; background: #fff; }
-.group-label-input:focus { border-color: var(--brand-500, #6366f1); box-shadow: 0 0 0 2px var(--brand-100, #e0e7ff); }
+.group-label-select { border: 1px solid #d1d5db; border-radius: 5px; padding: 3px 6px; font-size: 12px; background: #fff; outline: none; color: #374151; cursor: pointer; }
+.group-label-select:focus { border-color: var(--brand-500, #6366f1); }
 
 .picker-p-badge {
   flex-shrink: 0;

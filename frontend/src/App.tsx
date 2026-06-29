@@ -7,10 +7,12 @@ import type { AnalysisRow, CorrelationAnalysis, Dataset, RegressionAnalysis, Tab
 import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./draftStore";
 
 // One independent table page in the multi-table report
+interface GroupSlot { label: string; rawValue: string; }
+
 interface TableSlide {
   id: string;
   group: string | null;
-  groupLabels: Record<string, string>;
+  groupSlots: GroupSlot[];
   selected: string[];
   settings: TableEditorSettings;
   analysis: TableOneAnalysis | null;
@@ -130,7 +132,7 @@ function formatTableCaption(value: string, num = 1) {
 }
 
 function makeSlide(overrides: Partial<TableSlide> & { id: string }): TableSlide {
-  return { group: null, groupLabels: {}, selected: [], settings: { ...DEFAULT_SETTINGS }, analysis: null, ...overrides };
+  return { group: null, groupSlots: [], selected: [], settings: { ...DEFAULT_SETTINGS }, analysis: null, ...overrides };
 }
 
 function slidesForDataset(dataset: Dataset) {
@@ -205,8 +207,8 @@ function App() {
 
   const updateSlide = (patch: Partial<TableSlide>) => patchSlide(currentIndex, patch);
 
-  const setGroup = (v: string | null) => updateSlide({ group: v, groupLabels: {}, analysis: null });
-  const setGroupLabels = (v: Record<string, string>) => updateSlide({ groupLabels: v });
+  const setGroup = (v: string | null) => updateSlide({ group: v, groupSlots: [], analysis: null });
+  const setGroupSlots = (v: GroupSlot[]) => updateSlide({ groupSlots: v });
   const setSelected = (v: string[]) => updateSlide({ selected: v });
   const setTableSettings = (v: TableEditorSettings) => updateSlide({ settings: v });
 
@@ -518,6 +520,19 @@ function App() {
     } finally { setBusy(""); }
   };
 
+  const applyGroupSlots = (analysis: TableOneAnalysis, slots: GroupSlot[]): TableOneAnalysis => {
+    if (!slots.length || slots.length !== analysis.groups.length) return analysis;
+    return {
+      ...analysis,
+      groups: slots.map(slot => ({ name: slot.label, n: analysis.groups.find(g => g.name === slot.rawValue)?.n ?? 0 })),
+      rows: analysis.rows.map(row => ({
+        ...row,
+        groups: Object.fromEntries(slots.map(s => [s.label, row.groups[s.rawValue] ?? "—"])),
+        levels: row.levels.map(lv => ({ ...lv, groups: Object.fromEntries(slots.map(s => [s.label, lv.groups[s.rawValue] ?? "—"])) })),
+      })),
+    };
+  };
+
   const buildExportOptions = (s: TableSlide, selectedNames: string[], slideNum: number): ExportOptions => {
     const labelMap = Object.fromEntries(schema.map((v) => [v.name, v.label]));
     const d = s.settings.decimals;
@@ -537,19 +552,22 @@ function App() {
       showCI: s.settings.showCI,
       showMissing: s.settings.showMissing,
       decomposeCategories: true,
-      analysis: {
-        ...s.analysis!,
-        rows: selectedNames
-          .map((name) => s.analysis!.rows.find((r) => r.variable === name))
-          .filter((r): r is AnalysisRow => Boolean(r))
-          .map((row) => ({
-            ...row,
-            label: labelMap[row.variable] || row.variable,
-            overall: fmt(row.overall),
-            groups: Object.fromEntries(Object.entries(row.groups).map(([k, v]) => [k, fmt(v)])),
-            p_display: fmtp(row),
-          })),
-      },
+      analysis: (() => {
+        const base = applyGroupSlots(s.analysis!, s.groupSlots);
+        return {
+          ...base,
+          rows: selectedNames
+            .map((name) => base.rows.find((r) => r.variable === name))
+            .filter((r): r is AnalysisRow => Boolean(r))
+            .map((row) => ({
+              ...row,
+              label: labelMap[row.variable] || row.variable,
+              overall: fmt(row.overall),
+              groups: Object.fromEntries(Object.entries(row.groups).map(([k, v]) => [k, fmt(v)])),
+              p_display: fmtp(row),
+            })),
+        };
+      })(),
     };
   };
 
@@ -680,8 +698,8 @@ function App() {
               candidateGroups={candidateGroups}
               group={group}
               setGroup={setGroup}
-              groupLabels={slide.groupLabels}
-              setGroupLabels={setGroupLabels}
+              groupSlots={slide.groupSlots}
+              setGroupSlots={setGroupSlots}
               selected={selected}
               setSelected={setSelected}
               analysis={analysis}
@@ -988,14 +1006,22 @@ function VariablesPage({ schema, onUpdate, onContinue }: { schema: VariableSchem
   );
 }
 
+function toRoman(n: number): string {
+  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+  const syms = ["M","CM","D","CD","C","XC","L","XL","X","IX","V","IV","I"];
+  let r = "", i = 0;
+  while (n > 0) { while (n >= vals[i]) { r += syms[i]; n -= vals[i]; } i++; }
+  return r;
+}
+
 function TablePage({
-  dataset, schema, candidateGroups, group, setGroup, groupLabels, setGroupLabels, selected, setSelected,
+  dataset, schema, candidateGroups, group, setGroup, groupSlots, setGroupSlots, selected, setSelected,
   analysis, settings, setSettings, onExport, onExportReport,
   slideIndex, slideCount, computedCount, onPrevSlide, onNextSlide, onAddSlide, onDeleteSlide,
 }: {
   dataset: Dataset; schema: VariableSchema[]; candidateGroups: VariableSchema[];
   group: string | null; setGroup: (v: string | null) => void;
-  groupLabels: Record<string, string>; setGroupLabels: (v: Record<string, string>) => void;
+  groupSlots: GroupSlot[]; setGroupSlots: (v: GroupSlot[]) => void;
   selected: string[]; setSelected: (v: string[]) => void;
   analysis: TableOneAnalysis | null; settings: TableEditorSettings;
   setSettings: (s: TableEditorSettings) => void;
@@ -1038,6 +1064,19 @@ function TablePage({
     return () => ctrl.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group, dataset]);
+
+  // Auto-populate groupSlots when first analysis with groups arrives
+  useEffect(() => {
+    if (groupSlots.length === 0 && (analysis?.groups.length ?? 0) > 0) {
+      setGroupSlots(analysis!.groups.map((g, i) => ({ label: `Группа ${toRoman(i + 1)}`, rawValue: g.name })));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis]);
+
+  // Effective display order: slots if valid, else raw analysis order
+  const effectiveSlots: GroupSlot[] = (groupSlots.length === (analysis?.groups.length ?? 0) && groupSlots.length > 0)
+    ? groupSlots
+    : (analysis?.groups.map(g => ({ rawValue: g.name, label: g.name })) ?? []);
 
   const visibleRows = selected
     .filter((name) => availableNames.has(name))
@@ -1154,7 +1193,7 @@ function TablePage({
                 />
                 <p>{settings.description || "Автоматически сформированный статистический черновик"}</p>
               </div>
-              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((g) => { const customLabel = groupLabels[g.name]?.trim(); return <th key={g.name}>{customLabel ?? `${labels[analysis.group_column!] ?? analysis.group_column}: ${g.name}`}<small>n={g.n}</small></th>; })}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => <Fragment key={row.variable}><tr><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{row.levels.length ? "" : formatStat(row.groups[g.name])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td className={row.p_value !== null && row.p_value < 0.05 ? "significant" : ""}>{formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{analysis.groups.map((g) => <td key={g.name}>{formatStat(level.groups[g.name])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>)}</tbody></table></div>
+              <div className="table-scroll"><table className="result-table"><thead><tr><th>Показатель</th>{settings.showOverall && <th>Все (n={analysis.n})</th>}{effectiveSlots.map(slot => { const g = analysis.groups.find(g => g.name === slot.rawValue); return <th key={slot.rawValue}>{slot.label}<small>n={g?.n ?? 0}</small></th>; })}{settings.showMissing && <th>Пропуски</th>}{settings.showCI && <th>95% ДИ</th>}<th>p-value</th>{settings.showEffect && <th>Эффект</th>}</tr></thead><tbody>{visibleRows.map((row) => <Fragment key={row.variable}><tr><td><strong>{labels[row.variable] || row.variable}</strong><small>{presShort(row.presentation)}</small></td>{settings.showOverall && <td>{row.levels.length ? "" : formatStat(row.overall)}</td>}{effectiveSlots.map(slot => <td key={slot.rawValue}>{row.levels.length ? "" : formatStat(row.groups[slot.rawValue])}</td>)}{settings.showMissing && <td>{row.missing}</td>}{settings.showCI && <td>{formatStat(row.ci_display)}<small>{row.ci_label}</small></td>}<td className={row.p_value !== null && row.p_value < 0.05 ? "significant" : ""}>{formatP(row)}</td>{settings.showEffect && <td>{formatStat(row.effect)}<small>{row.effect_label}</small></td>}</tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{settings.showOverall && <td>{formatStat(level.overall)}</td>}{effectiveSlots.map(slot => <td key={slot.rawValue}>{formatStat(level.groups[slot.rawValue])}</td>)}{settings.showMissing && <td />}{settings.showCI && <td />}<td />{settings.showEffect && <td />}</tr>)}</Fragment>)}</tbody></table></div>
               {!visibleRows.length && <div className="no-rows">В таблице нет строк — выберите хотя бы одну переменную справа.</div>}
               <p className="analysis-note"><strong>Методическое примечание.</strong> {analysis.note} Пропуски исключались отдельно для каждой переменной.</p>
               {settings.footnotes && <p className="custom-footnotes">{settings.footnotes}</p>}
@@ -1166,20 +1205,39 @@ function TablePage({
       <aside className="inspector">
         <div className="editor-title"><span className="eyebrow">Таблица {slideIndex + 1}</span><h2>Выбор переменных</h2></div>
         <label className="field"><span>Группирующая переменная</span><select value={group ?? ""} onChange={(e) => setGroup(e.target.value || null)}><option value="">Без группировки</option>{candidateGroups.map((v) => <option value={v.name} key={v.name}>{v.label} ({v.unique})</option>)}</select></label>
-        {group && analysis && analysis.groups.length > 0 && (
+        {group && effectiveSlots.length > 0 && (
           <div className="group-label-editor">
-            <span className="group-label-editor-title">Названия групп</span>
-            {analysis.groups.map((g) => (
-              <div key={g.name} className="group-label-row">
-                <span className="group-label-chip">{g.name}</span>
-                <span className="group-label-arrow">→</span>
+            <span className="group-label-editor-title">Распределение групп</span>
+            {effectiveSlots.map((slot, i) => (
+              <div key={i} className="group-label-row">
                 <input
-                  className="group-label-input"
+                  className="group-label-name-input"
                   type="text"
-                  value={groupLabels[g.name] ?? ""}
-                  placeholder={g.name}
-                  onChange={(e) => setGroupLabels({ ...groupLabels, [g.name]: e.target.value })}
+                  value={slot.label}
+                  onChange={(e) => {
+                    const next = [...groupSlots];
+                    next[i] = { ...slot, label: e.target.value };
+                    setGroupSlots(next);
+                  }}
                 />
+                <span className="group-label-arrow">←</span>
+                <select
+                  className="group-label-select"
+                  value={slot.rawValue}
+                  onChange={(e) => {
+                    const newRaw = e.target.value;
+                    const next = groupSlots.map((s, j) => {
+                      if (j === i) return { ...s, rawValue: newRaw };
+                      if (s.rawValue === newRaw) return { ...s, rawValue: slot.rawValue };
+                      return s;
+                    });
+                    setGroupSlots(next);
+                  }}
+                >
+                  {analysis?.groups.map(g => (
+                    <option key={g.name} value={g.name}>{g.name} (n={g.n})</option>
+                  ))}
+                </select>
               </div>
             ))}
           </div>
@@ -1927,8 +1985,8 @@ function ReportPreviewPage({ slides, schema, dataset, regression, correlation, s
             <div className="report-section-label">Раздел {tableIndex + 1} · Описательная статистика</div>
             <h2>{slide.settings.title}</h2>
             {slide.settings.description && <p className="report-description">{slide.settings.description}</p>}
-            <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Показатель</th>{slide.settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((group) => { const cl = slide.groupLabels?.[group.name]?.trim(); return <th key={group.name}>{cl ?? `${labels[analysis.group_column!] ?? analysis.group_column}: ${group.name}`}<small>n={group.n}</small></th>; })}<th>p-value</th></tr></thead><tbody>
-              {analysis.rows.map((row) => <Fragment key={row.variable}><tr><td>{labels[row.variable] || row.variable}<small>{row.presentation}</small></td>{slide.settings.showOverall && <td>{row.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{row.groups[group.name]}</td>)}<td>{row.p_display}</td></tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{slide.settings.showOverall && <td>{level.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{level.groups[group.name]}</td>)}<td /></tr>)}</Fragment>)}
+            <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Показатель</th>{slide.settings.showOverall && <th>Все (n={analysis.n})</th>}{(() => { const slots = slide.groupSlots.length === analysis.groups.length && slide.groupSlots.length > 0 ? slide.groupSlots : analysis.groups.map(g => ({ rawValue: g.name, label: g.name })); return slots.map(slot => { const g = analysis.groups.find(g => g.name === slot.rawValue); return <th key={slot.rawValue}>{slot.label}<small>n={g?.n ?? 0}</small></th>; }); })()}<th>p-value</th></tr></thead><tbody>
+              {(() => { const slots = slide.groupSlots.length === analysis.groups.length && slide.groupSlots.length > 0 ? slide.groupSlots : analysis.groups.map(g => ({ rawValue: g.name, label: g.name })); return analysis.rows.map((row) => <Fragment key={row.variable}><tr><td>{labels[row.variable] || row.variable}<small>{row.presentation}</small></td>{slide.settings.showOverall && <td>{row.overall}</td>}{slots.map(slot => <td key={slot.rawValue}>{row.groups[slot.rawValue]}</td>)}<td>{row.p_display}</td></tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{slide.settings.showOverall && <td>{level.overall}</td>}{slots.map(slot => <td key={slot.rawValue}>{level.groups[slot.rawValue]}</td>)}<td /></tr>)}</Fragment>); })()}
             </tbody></table></div>
             <p className="report-method-note">{analysis.note}</p>
           </article>;
