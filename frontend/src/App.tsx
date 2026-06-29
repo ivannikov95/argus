@@ -178,10 +178,7 @@ function App() {
       next.schema.find((v) => v.name.toLowerCase().includes("group") && v.unique <= 8)?.name ??
       next.schema.find((v) => ["binary", "categorical"].includes(v.type) && v.role !== "id" && v.unique <= 8)?.name ??
       null;
-    const suggestedSelected = next.schema
-      .filter((v) => v.role !== "id" && v.type !== "text" && v.name !== suggestedGroup)
-      .map((v) => v.name);
-    setSlides([makeSlide({ id: "s1", group: suggestedGroup, selected: suggestedSelected })]);
+    setSlides([makeSlide({ id: "s1", group: suggestedGroup })]);
     setCurrentIndex(0);
   };
 
