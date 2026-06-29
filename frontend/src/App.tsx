@@ -172,16 +172,12 @@ function App() {
   const refreshProjects = () => { api.listProjects().then(setSavedProjects).catch(() => {}); };
 
   // On mount: load projects list and restore last session from localStorage
-  const loadProjectRef = useRef<(pid: string) => Promise<void>>(async () => {});
   useEffect(() => {
     refreshProjects();
     const pid = localStorage.getItem("lastProjectId");
-    if (pid) loadProjectRef.current(pid).catch(() => localStorage.removeItem("lastProjectId"));
+    if (pid) loadProject(pid).catch(() => localStorage.removeItem("lastProjectId"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Keep ref up-to-date so the startup effect always calls the latest version
-  useEffect(() => { loadProjectRef.current = loadProject; });
 
   const loadDemo = async () => {
     setBusy("Загрузка демонстрационных данных…");
@@ -965,33 +961,7 @@ function TablePage({
       </div>
 
       <aside className="inspector">
-        <div className="editor-title"><span className="eyebrow">Редактор таблицы</span><h2>Таблица {slideIndex + 1}</h2></div>
-        <section className="editor-section">
-          <h3>Контент</h3>
-          <input className="editor-input" value={settings.title} onChange={(e) => updateSettings({ title: e.target.value })} onBlur={() => updateSettings({ title: formatTableCaption(settings.title, slideIndex + 1) })} aria-label="Заголовок таблицы" />
-          <textarea className="editor-input" value={settings.description} onChange={(e) => updateSettings({ description: e.target.value })} placeholder="Описание…" aria-label="Описание таблицы" />
-          <textarea className="editor-input small" value={settings.footnotes} onChange={(e) => updateSettings({ footnotes: e.target.value })} placeholder="Сноски…" aria-label="Сноски таблицы" />
-        </section>
-        <section className="editor-section">
-          <h3>Форматирование</h3>
-          <div className="editor-grid two">
-            <select value={settings.font} disabled aria-label="Шрифт таблицы"><option value="times">Times New Roman</option></select>
-            <select value={settings.fontSize} onChange={(e) => updateSettings({ fontSize: Number(e.target.value) as TableEditorSettings["fontSize"] })} aria-label="Размер шрифта"><option value={10}>10 pt</option><option value={11}>11 pt</option><option value={12}>12 pt</option></select>
-          </div>
-          <div className="alignment-control" aria-label="Выравнивание">
-            {(["left", "center", "right"] as const).map((a) => <button key={a} className={settings.alignment === a ? "active" : ""} aria-pressed={settings.alignment === a} onClick={() => updateSettings({ alignment: a })}>{a === "left" ? "≡" : a === "center" ? "☰" : "≣"}</button>)}
-          </div>
-          <label className="setting-row"><span>Знаки после запятой</span><input type="number" min={0} max={4} value={settings.decimals} onChange={(e) => updateSettings({ decimals: Math.min(4, Math.max(0, Number(e.target.value))) })} /></label>
-          <label className="setting-row"><span>Формат p-value</span><select value={settings.pFormat} onChange={(e) => updateSettings({ pFormat: e.target.value as TableEditorSettings["pFormat"] })}><option value="exact">0,000</option><option value="threshold">&lt;0,05 / ≥0,05</option></select></label>
-        </section>
-        <section className="editor-section compact-section">
-          <h3>Статистика</h3>
-          <label className="editor-check"><input type="checkbox" checked={settings.showOverall} onChange={(e) => updateSettings({ showOverall: e.target.checked })} /><span>Столбец «Все»</span></label>
-          <label className="editor-check"><input type="checkbox" checked={settings.showCI} onChange={(e) => updateSettings({ showCI: e.target.checked })} /><span>95% ДИ</span></label>
-          <label className="editor-check disabled-control" title="Проверка распределения обязательна для автоматического выбора метода"><input type="checkbox" checked disabled /><span>Тесты распределения</span></label>
-          <label className="editor-check"><input type="checkbox" checked={settings.showEffect} onChange={(e) => updateSettings({ showEffect: e.target.checked })} /><span>Размер эффекта</span></label>
-          <label className="editor-check"><input type="checkbox" checked={settings.showMissing} onChange={(e) => updateSettings({ showMissing: e.target.checked })} /><span>Число пропусков</span></label>
-        </section>
+        <div className="editor-title"><span className="eyebrow">Таблица {slideIndex + 1}</span><h2>Выбор переменных</h2></div>
         <label className="field"><span>Группирующая переменная</span><select value={group ?? ""} onChange={(e) => setGroup(e.target.value || null)}><option value="">Без группировки</option>{candidateGroups.map((v) => <option value={v.name} key={v.name}>{v.label} ({v.unique})</option>)}</select></label>
         <div className={`variable-picker ${dragged ? "is-reordering" : ""}`}>
           <div className="picker-head"><span>Переменные · {selected.filter((name) => availableNames.has(name)).length} выбрано</span><button onClick={() => setSelected(selected.filter((name) => availableNames.has(name)).length === available.length ? [] : available.map((v) => v.name))}>{selected.filter((name) => availableNames.has(name)).length === available.length ? "Снять все" : "Выбрать все"}</button></div>
@@ -1012,6 +982,14 @@ function TablePage({
             );
           })}
         </div>
+        <section className="editor-section compact-section">
+          <h3>Статистика</h3>
+          <label className="editor-check"><input type="checkbox" checked={settings.showOverall} onChange={(e) => updateSettings({ showOverall: e.target.checked })} /><span>Столбец «Все»</span></label>
+          <label className="editor-check"><input type="checkbox" checked={settings.showCI} onChange={(e) => updateSettings({ showCI: e.target.checked })} /><span>95% ДИ</span></label>
+          <label className="editor-check disabled-control" title="Проверка распределения обязательна для автоматического выбора метода"><input type="checkbox" checked disabled /><span>Тесты распределения</span></label>
+          <label className="editor-check"><input type="checkbox" checked={settings.showEffect} onChange={(e) => updateSettings({ showEffect: e.target.checked })} /><span>Размер эффекта</span></label>
+          <label className="editor-check"><input type="checkbox" checked={settings.showMissing} onChange={(e) => updateSettings({ showMissing: e.target.checked })} /><span>Число пропусков</span></label>
+        </section>
         <section className="editor-section analysis-settings">
           <h3>Настройки статистического анализа</h3>
           <label className="field"><span>Непрерывные данные</span><select value={settings.numericPresentation} onChange={(e) => updateSettings({ numericPresentation: e.target.value as TableEditorSettings["numericPresentation"] })}><option value="auto">Авто: Mean или Median</option><option value="mean_sd">Mean ± SD</option><option value="median_iqr">Median [Q1; Q3]</option></select></label>
@@ -1022,6 +1000,24 @@ function TablePage({
           <small className="recalc-hint">Выбор критерия и уровня ДИ применяется после пересчёта.</small>
         </section>
         <div className="method-card"><strong>Автовыбор метода</strong><p>Непрерывные данные: Welch или Mann–Whitney. Категории: χ² или Fisher. Вместе с p показывается размер эффекта.</p></div>
+        <section className="editor-section">
+          <h3>Контент</h3>
+          <input className="editor-input" value={settings.title} onChange={(e) => updateSettings({ title: e.target.value })} onBlur={() => updateSettings({ title: formatTableCaption(settings.title, slideIndex + 1) })} aria-label="Заголовок таблицы" />
+          <textarea className="editor-input" value={settings.description} onChange={(e) => updateSettings({ description: e.target.value })} placeholder="Описание…" aria-label="Описание таблицы" />
+          <textarea className="editor-input small" value={settings.footnotes} onChange={(e) => updateSettings({ footnotes: e.target.value })} placeholder="Сноски…" aria-label="Сноски таблицы" />
+        </section>
+        <section className="editor-section">
+          <h3>Форматирование</h3>
+          <div className="editor-grid two">
+            <select value={settings.font} disabled aria-label="Шрифт таблицы"><option value="times">Times New Roman</option></select>
+            <select value={settings.fontSize} onChange={(e) => updateSettings({ fontSize: Number(e.target.value) as TableEditorSettings["fontSize"] })} aria-label="Размер шрифта"><option value={10}>10 pt</option><option value={11}>11 pt</option><option value={12}>12 pt</option></select>
+          </div>
+          <div className="alignment-control" aria-label="Выравнивание">
+            {(["left", "center", "right"] as const).map((a) => <button key={a} className={settings.alignment === a ? "active" : ""} aria-pressed={settings.alignment === a} onClick={() => updateSettings({ alignment: a })}>{a === "left" ? "≡" : a === "center" ? "☰" : "≣"}</button>)}
+          </div>
+          <label className="setting-row"><span>Знаки после запятой</span><input type="number" min={0} max={4} value={settings.decimals} onChange={(e) => updateSettings({ decimals: Math.min(4, Math.max(0, Number(e.target.value))) })} /></label>
+          <label className="setting-row"><span>Формат p-value</span><select value={settings.pFormat} onChange={(e) => updateSettings({ pFormat: e.target.value as TableEditorSettings["pFormat"] })}><option value="exact">0,000</option><option value="threshold">&lt;0,05 / ≥0,05</option></select></label>
+        </section>
         <section className="editor-section report-composer">
           <h3>Экспорт отчёта</h3>
           {computedCount > 0 ? (
