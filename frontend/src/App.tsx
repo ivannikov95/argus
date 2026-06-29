@@ -1748,78 +1748,75 @@ function LogisticForestPlot({ result, labels }: { result: LogisticMultiResult; l
   const allVals = entries.flatMap(([, c]) => [c.or, c.ci_lower, c.ci_upper]).filter(isFinite);
   const rawMin = Math.min(...allVals, 0.5);
   const rawMax = Math.max(...allVals, 2);
-  const pad = (rawMax - rawMin) * 0.08;
+  const pad = (rawMax - rawMin) * 0.10;
   const xMin = Math.max(0.01, rawMin - pad);
   const xMax = rawMax + pad;
 
-  const ROW_H = 46;
-  const TOP = 28, BOTTOM = 16;
-  const LABEL_W = 148, PLOT_W = 200, RIGHT_W = 176;
-  const W = LABEL_W + PLOT_W + RIGHT_W;
+  const ROW_H = 40;
+  const TOP = 26, BOTTOM = 30;
+  const LABEL_W = 148, PLOT_W = 190, GAP = 12;
+  const COL_OR = 90, COL_P = 52;
+  const W = LABEL_W + PLOT_W + GAP + COL_OR + GAP + COL_P;
   const H = TOP + entries.length * ROW_H + BOTTOM;
-  const PX = LABEL_W; // plot origin x
+  const PX = LABEL_W;
 
   const toX = (v: number) => PX + (Math.log(v) - Math.log(xMin)) / (Math.log(xMax) - Math.log(xMin)) * PLOT_W;
   const nullX = toX(1);
 
-  // header columns
-  const RX1 = LABEL_W + PLOT_W + 8;   // start of right text area
-  const RX2 = RX1 + 80;               // p-value column
+  const RX_OR = LABEL_W + PLOT_W + GAP;
+  const RX_P  = RX_OR + COL_OR + GAP;
+  const AXIS_Y = TOP + entries.length * ROW_H;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="forest-plot-svg">
-      {/* header row */}
-      <text x={LABEL_W + PLOT_W / 2} y={TOP - 10} textAnchor="middle" fontSize="9" fontWeight="600" fill="#6b7280">График (лог. шкала)</text>
-      <text x={RX1} y={TOP - 10} fontSize="9" fontWeight="600" fill="#6b7280">ОШ (95% ДИ)</text>
-      <text x={RX2} y={TOP - 10} fontSize="9" fontWeight="600" fill="#6b7280">p-value</text>
+      {/* column headers */}
+      <text x={RX_OR + COL_OR / 2} y={TOP - 8} textAnchor="middle" fontSize="9" fontWeight="600" fill="#6b7280">ОШ (95% ДИ)</text>
+      <text x={RX_P  + COL_P / 2}  y={TOP - 8} textAnchor="middle" fontSize="9" fontWeight="600" fill="#6b7280">p-value</text>
 
-      {/* plot area box */}
-      <line x1={PX} y1={TOP} x2={PX} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
-      <line x1={PX + PLOT_W} y1={TOP} x2={PX + PLOT_W} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
-      <line x1={PX} y1={H - BOTTOM} x2={PX + PLOT_W} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
-
-      {/* null line */}
-      <line x1={nullX} y1={TOP} x2={nullX} y2={H - BOTTOM} stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
-      <text x={nullX} y={TOP - 2} textAnchor="middle" fontSize="8" fill="#94a3b8">1</text>
+      {/* null line behind rows */}
+      <line x1={nullX} y1={TOP} x2={nullX} y2={AXIS_Y} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4 3" />
 
       {entries.map(([pred, c], i) => {
         const y = TOP + i * ROW_H + ROW_H / 2;
-        const ciLo = Math.max(c.ci_lower, xMin);
-        const ciHi = Math.min(c.ci_upper, xMax);
-        const orClamped = Math.max(xMin, Math.min(c.or, xMax));
-        const x0 = toX(ciLo);
-        const x1 = toX(ciHi);
-        const xOR = toX(orClamped);
-        const sig = c.p_value < 0.05;
-        const color = sig ? "#4f46e5" : "#ef4444";
+        const x0 = toX(Math.max(c.ci_lower, xMin));
+        const x1 = toX(Math.min(c.ci_upper, xMax));
+        const xOR = toX(Math.max(xMin, Math.min(c.or, xMax)));
         const label = labels[pred] || pred;
         const displayLabel = label.length > 20 ? label.slice(0, 19) + "…" : label;
         const orText = `${c.or.toFixed(2)} (${c.ci_lower.toFixed(2)}–${c.ci_upper.toFixed(2)})`;
+        const INK = "#1f2937";
 
         return (
           <g key={pred}>
-            {/* variable name */}
-            <text x={LABEL_W - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#1f2937">{displayLabel}</text>
-            {/* zebra stripe */}
-            {i % 2 === 1 && <rect x={PX} y={y - ROW_H / 2} width={PLOT_W} height={ROW_H} fill="#f9fafb" />}
-            {/* CI line */}
-            <line x1={x0} y1={y} x2={x1} y2={y} stroke={color} strokeWidth="2" />
-            <line x1={x0} y1={y - 5} x2={x0} y2={y + 5} stroke={color} strokeWidth="1.5" />
-            <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} stroke={color} strokeWidth="1.5" />
-            {/* OR square */}
-            <rect x={xOR - 5} y={y - 5} width="10" height="10" rx="2" fill={color} />
-            {/* right-side text: OR (CI) */}
-            <text x={RX1} y={y + 4} fontSize="11" fill={sig ? "#1e3a8a" : "#374151"} fontWeight={sig ? "600" : "400"}>{orText}</text>
+            {i % 2 === 1 && <rect x={0} y={y - ROW_H / 2} width={W} height={ROW_H} fill="#f8fafc" />}
+            <text x={LABEL_W - 8} y={y + 4} textAnchor="end" fontSize="11" fill={INK}>{displayLabel}</text>
+            {/* CI whisker */}
+            <line x1={x0} y1={y} x2={x1} y2={y} stroke={INK} strokeWidth="1.5" />
+            <line x1={x0} y1={y - 4} x2={x0} y2={y + 4} stroke={INK} strokeWidth="1.5" />
+            <line x1={x1} y1={y - 4} x2={x1} y2={y + 4} stroke={INK} strokeWidth="1.5" />
+            {/* OR tick: thin vertical bar */}
+            <line x1={xOR} y1={y - 7} x2={xOR} y2={y + 7} stroke={INK} strokeWidth="2.5" />
+            {/* OR (CI) text */}
+            <text x={RX_OR + COL_OR / 2} y={y + 4} textAnchor="middle" fontSize="10" fill={INK}>{orText}</text>
             {/* p-value */}
-            <text x={RX2} y={y + 4} fontSize="11" fill={color} fontWeight="600">{c.p_display}</text>
+            <text x={RX_P + COL_P / 2} y={y + 4} textAnchor="middle" fontSize="10" fill={INK}>{c.p_display}</text>
           </g>
         );
       })}
 
-      {/* bottom axis ticks */}
-      {[xMin, 1, xMax].map((v) => (
-        <text key={v} x={toX(v)} y={H - 2} textAnchor="middle" fontSize="8" fill="#9ca3af">{v < 1 ? v.toFixed(2) : v.toFixed(1)}</text>
-      ))}
+      {/* X axis */}
+      <line x1={PX} y1={AXIS_Y} x2={PX + PLOT_W} y2={AXIS_Y} stroke="#94a3b8" strokeWidth="1" />
+      {[xMin, 1, xMax].map((v) => {
+        const tx = toX(v);
+        const lbl = v === 1 ? "1" : v < 1 ? v.toFixed(2) : v.toFixed(1);
+        return (
+          <g key={v}>
+            <line x1={tx} y1={AXIS_Y} x2={tx} y2={AXIS_Y + 4} stroke="#94a3b8" strokeWidth="1" />
+            <text x={tx} y={AXIS_Y + 13} textAnchor="middle" fontSize="9" fill="#6b7280">{lbl}</text>
+          </g>
+        );
+      })}
+      <text x={nullX} y={AXIS_Y + 24} textAnchor="middle" fontSize="8" fill="#9ca3af">ОШ</text>
     </svg>
   );
 }
