@@ -551,7 +551,7 @@ textarea.editor-input.small { min-height: 42px; }
   border-radius: 16px;
   box-shadow: 0 24px 80px rgba(10,15,30,.28), 0 4px 16px rgba(10,15,30,.12);
   overflow: hidden;
-  max-width: 780px; width: calc(100vw - 48px);
+  max-width: 960px; width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
   animation: modal-in .18s cubic-bezier(.22,.9,.36,1);
 }
@@ -568,11 +568,11 @@ textarea.editor-input.small { min-height: 42px; }
 }
 .modal-close-btn:hover { background: rgba(0,0,0,.14); color: #344054; }
 .corr-modal-img-col {
-  flex-shrink: 0; width: 320px;
+  flex-shrink: 0; width: 440px;
   background: #f8fafc;
   display: flex; align-items: center; justify-content: center;
   border-right: 1px solid #eef2f7;
-  min-height: 300px;
+  min-height: 360px;
 }
 .corr-modal-img { display: block; width: 100%; height: auto; }
 .corr-modal-spinner { padding: 40px; color: #b0bbc9; }

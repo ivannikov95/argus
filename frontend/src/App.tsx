@@ -1216,9 +1216,8 @@ function corrStrengthWord(r: number): string {
 }
 function formatPExact(p: number | null): string {
   if (p === null) return "—";
-  if (p < 0.0001) return p.toExponential(2);
-  if (p < 0.01) return p.toFixed(4);
-  return p.toFixed(3);
+  if (p < 0.001) return "< 0,001";
+  return p.toFixed(3).replace(".", ",");
 }
 
 function corrColor(r: number | null): string {

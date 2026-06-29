@@ -879,7 +879,7 @@ def scatter_plot(request: ScatterRequest) -> Response:
     ys = [p[1] for p in pairs]
 
     sns.set_theme(style="whitegrid", font_scale=0.9)
-    fig, ax = plt.subplots(figsize=(3.6, 3.2), dpi=130)
+    fig, ax = plt.subplots(figsize=(4.2, 3.8), dpi=324)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
