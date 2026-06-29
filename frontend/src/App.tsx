@@ -1005,6 +1005,8 @@ function TablePage({
   const draggedRef = useRef<string | null>(null);
   const dropHintRef = useRef<{ name: string; edge: "before" | "after" } | null>(null);
   const variableRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const bgAbortRef = useRef<AbortController | null>(null);
+  const [bgPValues, setBgPValues] = useState<Map<string, number | null>>(new Map());
   const labels = Object.fromEntries(schema.map((item) => [item.name, item.label]));
   const available = schema.filter((v) => v.role !== "id" && v.type !== "text" && v.name !== group);
   const availableNames = new Set(available.map((v) => v.name));
@@ -1012,6 +1014,26 @@ function TablePage({
     ...pickerOrder.map((name) => available.find((v) => v.name === name)).filter((v): v is VariableSchema => Boolean(v)),
     ...available.filter((v) => !pickerOrder.includes(v.name)),
   ];
+  // Background p-value scan: all available variables whenever group changes
+  useEffect(() => {
+    if (!group) { setBgPValues(new Map()); return; }
+    bgAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    bgAbortRef.current = ctrl;
+    const allNames = available.map((v) => v.name);
+    if (!allNames.length) return;
+    api.tableOne(
+      dataset.rows, group, allNames,
+      { numericPresentation: settings.numericPresentation, numericTest: settings.numericTest, categoricalTest: settings.categoricalTest, confidenceLevel: settings.confidenceLevel },
+      Object.fromEntries(schema.map((v) => [v.name, v])),
+    ).then((res) => {
+      if (ctrl.signal.aborted) return;
+      setBgPValues(new Map(res.rows.map((r) => [r.variable, r.p_value])));
+    }).catch(() => {});
+    return () => ctrl.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group, dataset]);
+
   const visibleRows = selected
     .filter((name) => availableNames.has(name))
     .map((name) => analysis?.rows.find((row) => row.variable === name))
@@ -1144,13 +1166,12 @@ function TablePage({
           <p className="picker-hint">Отмечайте строки и перетаскивайте выбранные переменные за маркер.</p>
           <div className="picker-scroll">
             {(() => {
-              const pMap = new Map(analysis?.rows.map((r) => [r.variable, r.p_value]) ?? []);
-              const hasGroups = (analysis?.groups.length ?? 0) > 0;
+              const hasGroups = !!group;
               return pickerVariables.map((variable) => {
                 const isSelected = selected.includes(variable.name);
                 const position = selected.indexOf(variable.name);
                 const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
-                const pVal = hasGroups ? pMap.get(variable.name) : undefined;
+                const pVal = hasGroups ? bgPValues.get(variable.name) : undefined;
                 const isSig = pVal !== undefined && pVal !== null && pVal < 0.05;
                 return (
                   <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
