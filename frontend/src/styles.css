@@ -131,7 +131,8 @@ table { border-collapse: collapse; width: 100%; }
 .muted-value { color: var(--muted); }
 
 .analysis-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: calc(100vh - 66px); }
-.analysis-main { min-width: 0; padding: 20px 24px 48px 16px; }
+.analysis-main { min-width: 0; padding: 16px 20px 16px 16px; }
+.lgt-layout .analysis-main { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
 .inspector { position: sticky; top: 66px; align-self: start; height: calc(100vh - 66px); overflow-y: auto; padding: 23px 20px; border-left: 1px solid var(--line); background: #fff; }
 .inspector h2 { margin: 0 0 24px; font-size: 17px; }
 .editor-title { padding-bottom: 2px; }
@@ -708,12 +709,12 @@ textarea.editor-input.small { min-height: 42px; }
 .scatter-preview-loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #b0bbc9; }
 
 /* ── Logistic Table Page ───────────────────────────────────────────── */
-.lgt-layout { display: block; }
-.lgt-outcome-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+.lgt-layout { display: block; height: calc(100vh - 66px); overflow: hidden; }
+.lgt-outcome-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 12px 20px; margin-bottom: 12px; flex-shrink: 0; }
 .lgt-badge { flex-shrink: 0; background: #e0e7ff; color: #4338ca; font-size: 10px; font-weight: 700; letter-spacing: .1em; padding: 4px 10px; border-radius: 20px; border: 1px solid #c7d2fe; }
 
 /* Two-column body */
-.lgt-body { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+.lgt-body { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; flex: 1; min-height: 0; overflow: hidden; }
 
 /* Predictor card picker */
 .lgt-picker-wrapper { align-self: stretch; position: relative; }
@@ -740,8 +741,8 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-picker-empty { font-size: 12px; color: #9ca3af; padding: 8px 0; }
 
 /* Right side */
-.lgt-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.lgt-table-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.lgt-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: hidden; }
+.lgt-table-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow-y: auto; flex-shrink: 1; max-height: 42%; }
 .lgt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .lgt-table thead { background: #f9fafb; }
 .lgt-table th { padding: 7px 12px; text-align: left; font-size: 10px; font-weight: 600; color: #6b7280; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
@@ -779,8 +780,8 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-legend { display: flex; align-items: center; gap: 5px; margin-left: auto; font-size: 10px; }
 .lgt-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 .lgt-dot-ns { background: #fee2e2; border: 1px solid #ef4444; }
-.lgt-panels { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; align-items: stretch; }
-.lgt-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; background: #fff; display: flex; flex-direction: column; }
+.lgt-panels { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; align-items: stretch; flex: 1; min-height: 0; overflow: hidden; }
+.lgt-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; background: #fff; display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
 .lgt-panel-title { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 8px; }
 .lgt-insight-text { font-size: 12px; color: #4b5563; line-height: 1.6; margin: 0; }
 .lgt-panel-export { background: #1d2430; border-color: #1d2430; }
@@ -834,6 +835,6 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-outcome-step { width: 28px; height: 28px; border-radius: 50%; background: #6366f1; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .lgt-outcome-bar-title { font-size: 14px; font-weight: 600; color: #111827; }
 .lgt-outcome-bar-hint { font-size: 12px; color: #6b7280; margin-top: 1px; }
-.lgt-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.lgt-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 12px; flex-shrink: 0; }
 .lgt-header-left { display: flex; flex-direction: column; gap: 2px; }
 .lgt-header-title { font-size: 22px; font-weight: 700; color: #111827; margin: 0; letter-spacing: -.3px; }
