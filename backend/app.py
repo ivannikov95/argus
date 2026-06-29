@@ -429,8 +429,15 @@ def run_table_one(request: TableOneRequest) -> dict[str, Any]:
         raise HTTPException(422, "Группирующая переменная отсутствует в датасете")
     groups = []
     if request.group_column:
-        groups = [str(value) for value in df[request.group_column].dropna().unique()]
+        def _fmt_group(v: Any) -> str:
+            if isinstance(v, float) and v == int(v):
+                return str(int(v))
+            return str(v)
+        groups = [_fmt_group(v) for v in df[request.group_column].dropna().unique()]
         groups = sorted(groups)[:8]
+        # Normalise the group column in-place so comparisons work correctly
+        df = df.copy()
+        df[request.group_column] = df[request.group_column].map(_fmt_group)
     variables = request.variables or list(df.columns)
     variables = [v for v in variables if v in df.columns and v != request.group_column]
     schema = {item["name"]: item for item in (infer_column(df[col]) for col in df.columns)}
