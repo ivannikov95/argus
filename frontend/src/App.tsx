@@ -106,6 +106,7 @@ function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const skipNextAutoSave = useRef(false); // prevents auto-save right after project load
 
   useEffect(() => {
     if (!notice) return;
@@ -241,6 +242,7 @@ function App() {
       }
       setCurrentIndex(0);
       setProjectName(saved.project_name);
+      skipNextAutoSave.current = true;
       setCurrentProjectId(saved.project_id);
       setSaveStatus("saved");
       setPage(saved.last_analysis ? "table" : "dataset");
@@ -309,6 +311,7 @@ function App() {
   // auto-save effect: fires 3s after any change if project already has an ID
   useEffect(() => {
     if (!dataset || !currentProjectId) { if (dataset) setSaveStatus("dirty"); return; }
+    if (skipNextAutoSave.current) { skipNextAutoSave.current = false; return; }
     setSaveStatus("dirty");
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => silentSave(currentProjectId), 3000);
@@ -450,14 +453,14 @@ function App() {
                 ))}
               </select>
             )}
-            {dataset && (
+            {dataset && currentProjectId ? (
               <span className={`save-status save-status--${saveStatus}`}>
-                {saveStatus === "saving" ? "Сохраняется…" : saveStatus === "saved" ? "Сохранено" : "Не сохранено"}
+                {saveStatus === "saving" ? "⟳ Сохраняется…" : saveStatus === "saved" ? "✓ Сохранено" : "● Не сохранено"}
+                <button className="save-as-link" title="Сохранить копию под новым именем" onClick={() => { setSaveAsName(projectName); setSaveAsOpen(true); }}>Копия</button>
               </span>
-            )}
-            <button className="button secondary" onClick={() => { setSaveAsName(projectName); setSaveAsOpen(true); }} disabled={!dataset || !!busy}>
-              {currentProjectId ? "Сохранить как…" : "Сохранить"}
-            </button>
+            ) : dataset ? (
+              <button className="button secondary" onClick={() => { setSaveAsName(projectName); setSaveAsOpen(true); }} disabled={!!busy}>Сохранить</button>
+            ) : null}
             <button className="button primary" onClick={runAnalysis} disabled={!dataset || !selected.length || !!busy}>Рассчитать Table 1</button>
           </div>
         </header>
