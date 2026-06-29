@@ -105,6 +105,14 @@ function App() {
   const [notice, setNotice] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    if (!notice) return;
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(noticeTimer.current);
+  }, [notice]);
 
   // Current slide (all derived — never store group/selected/analysis/settings directly)
   const slide = slides[Math.min(currentIndex, slides.length - 1)];
