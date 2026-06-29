@@ -97,3 +97,36 @@ export interface RegressionAnalysis {
   } | null;
   generated_at: string;
 }
+
+export interface LogisticCoeff {
+  or: number;
+  ci_lower: number;
+  ci_upper: number;
+  p_value: number;
+  p_display: string;
+}
+
+export interface LogisticUniResult extends LogisticCoeff {
+  n: number;
+  n_events: number;
+}
+
+export interface LogisticMultiResult {
+  coefficients: Record<string, LogisticCoeff & { term: string }>;
+  n: number;
+  n_events: number;
+  chi2: number;
+  chi2_p: number;
+  chi2_p_display: string;
+  nagelkerke_r2: number;
+  fit_method: string;
+  warnings: string[];
+}
+
+export interface LogisticTableRow {
+  predictor: string;
+  inMultivariate: boolean;
+  univariate: LogisticUniResult | null;
+  univariateLoading: boolean;
+  univariateError: string | null;
+}

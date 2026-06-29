@@ -3,11 +3,18 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import type { ExportOptions, ProjectMeta } from "./api";
-import type { AnalysisRow, CorrelationAnalysis, Dataset, RegressionAnalysis, TableOneAnalysis, VariableSchema } from "./types";
+import type { AnalysisRow, CorrelationAnalysis, Dataset, LogisticMultiResult, LogisticTableRow, LogisticUniResult, RegressionAnalysis, TableOneAnalysis, VariableSchema } from "./types";
 import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./draftStore";
 
 // One independent table page in the multi-table report
 interface GroupSlot { label: string; rawValue: string; }
+
+interface LogisticTableWorkspace {
+  outcome: string;
+  rows: LogisticTableRow[];
+  multiResult: LogisticMultiResult | null;
+  multiLoading: boolean;
+}
 
 interface TableSlide {
   id: string;
@@ -18,7 +25,7 @@ interface TableSlide {
   analysis: TableOneAnalysis | null;
 }
 
-type Page = "home" | "dataset" | "variables" | "table" | "regression" | "correlation" | "report";
+type Page = "home" | "dataset" | "variables" | "table" | "regression" | "modeling" | "correlation" | "report";
 
 function ArgusMark({ className = "" }: { className?: string }) {
   return <img className={`argus-mark ${className}`.trim()} src="/argus-mark.svg" alt="" aria-hidden="true" />;
@@ -106,7 +113,8 @@ const nav: { id: Page | string; label: string; mark: string; enabled: boolean }[
   { id: "dataset", label: "Датасет", mark: "▦", enabled: true },
   { id: "variables", label: "Переменные", mark: "≡", enabled: true },
   { id: "table", label: "Описательная статистика", mark: "▥", enabled: true },
-  { id: "regression", label: "Регрессия", mark: "∑", enabled: true },
+  { id: "regression", label: "Регрессионный анализ", mark: "∑", enabled: true },
+  { id: "modeling", label: "Моделирование", mark: "◈", enabled: true },
   { id: "report", label: "Отчёт", mark: "▤", enabled: true },
   { id: "correlation", label: "Корреляции", mark: "⌁", enabled: true },
   { id: "survival", label: "Выживаемость", mark: "◷", enabled: false },
@@ -167,6 +175,7 @@ function App() {
   const [schema, setSchema] = useState<VariableSchema[]>([]);
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
   const [regression, setRegression] = useState<RegressionWorkspace>({ outcome: "", predictors: [], confidenceLevel: 0.95, cutoff: 0.5, result: null });
+  const [logisticTable, setLogisticTable] = useState<LogisticTableWorkspace>({ outcome: "", rows: [], multiResult: null, multiLoading: false });
   const [correlation, setCorrelation] = useState<CorrelationWorkspace>({ variables: [], method: "auto", result: null, includeMatrix: false, reportPairs: [] });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [projectName, setProjectName] = useState("Новое исследование");
@@ -717,6 +726,9 @@ function App() {
             />
           )}
           {page === "regression" && dataset && (
+            <LogisticTablePage dataset={dataset} schema={schema} workspace={logisticTable} setWorkspace={(w) => setLogisticTable(typeof w === "function" ? (w as (p: LogisticTableWorkspace) => LogisticTableWorkspace)(logisticTable) : w)} />
+          )}
+          {page === "modeling" && dataset && (
             <RegressionPage dataset={dataset} schema={schema} workspace={regression} setWorkspace={setRegression} onOpenReport={() => setPage("report")} />
           )}
           {page === "correlation" && dataset && (
@@ -1717,6 +1729,296 @@ function CorrelationPage({ dataset, schema, workspace, setWorkspace }: {
             onClose={() => setModalCell(null)}
           />
         )}
+      </div>
+    </section>
+  );
+}
+
+// ─── Logistic Regression Table Page ──────────────────────────────────────────
+
+function formatOR(or: number, lo: number, hi: number): string {
+  const f = (n: number) => n.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${f(or)} (${f(lo)}–${f(hi)})`;
+}
+
+function LogisticForestPlot({ result, labels }: { result: LogisticMultiResult; labels: Record<string, string> }) {
+  const entries = Object.entries(result.coefficients);
+  if (!entries.length) return null;
+
+  const allVals = entries.flatMap(([, c]) => [c.or, c.ci_lower, c.ci_upper]).filter(isFinite);
+  const rawMin = Math.min(...allVals, 0.5);
+  const rawMax = Math.max(...allVals, 2);
+  const pad = (rawMax - rawMin) * 0.05;
+  const xMin = Math.max(0.01, rawMin - pad);
+  const xMax = rawMax + pad;
+
+  const W = 480, H = Math.max(100, entries.length * 44 + 40);
+  const LEFT = 140, RIGHT = 20, TOP = 20, BOTTOM = 20;
+  const plotW = W - LEFT - RIGHT;
+
+  const toX = (v: number) => LEFT + (Math.log(v) - Math.log(xMin)) / (Math.log(xMax) - Math.log(xMin)) * plotW;
+  const nullX = toX(1);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="forest-plot-svg">
+      {/* axis line */}
+      <line x1={LEFT} y1={TOP} x2={LEFT} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+      <line x1={LEFT} y1={H - BOTTOM} x2={W - RIGHT} y2={H - BOTTOM} stroke="#e5e7eb" strokeWidth="1" />
+      {/* null line */}
+      <line x1={nullX} y1={TOP} x2={nullX} y2={H - BOTTOM} stroke="#94a3b8" strokeWidth="1" strokeDasharray="4 3" />
+      <text x={nullX} y={TOP - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">1.0</text>
+      {entries.map(([pred, c], i) => {
+        const y = TOP + i * 44 + 22;
+        const x0 = toX(Math.max(c.ci_lower, xMin));
+        const x1 = toX(Math.min(c.ci_upper, xMax));
+        const xOR = toX(c.or);
+        const sig = c.p_value < 0.05;
+        const color = sig ? "#4f46e5" : "#ef4444";
+        return (
+          <g key={pred}>
+            <text x={LEFT - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#374151">
+              {(labels[pred] || pred).length > 18 ? (labels[pred] || pred).slice(0, 17) + "…" : (labels[pred] || pred)}
+            </text>
+            <line x1={x0} y1={y} x2={x1} y2={y} stroke={color} strokeWidth="2" />
+            <line x1={x0} y1={y - 4} x2={x0} y2={y + 4} stroke={color} strokeWidth="1.5" />
+            <line x1={x1} y1={y - 4} x2={x1} y2={y + 4} stroke={color} strokeWidth="1.5" />
+            <rect x={xOR - 5} y={y - 5} width="10" height="10" rx="2" fill={color} />
+            <text x={xOR} y={y + 16} textAnchor="middle" fontSize="9" fill={color}>
+              {c.or.toFixed(2)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function generateInsight(rows: LogisticTableRow[], multiResult: LogisticMultiResult | null, labels: Record<string, string>): string {
+  const done = rows.filter((r) => r.univariate);
+  if (!done.length) return "Добавьте предикторы, чтобы начать анализ.";
+
+  const strongest = done.sort((a, b) => (a.univariate!.p_value) - (b.univariate!.p_value))[0];
+  const sName = labels[strongest.predictor] || strongest.predictor;
+  let text = `Однофакторный анализ показывает, что наиболее значимым предиктором является ${sName} (ОШ ${strongest.univariate!.or.toFixed(2)}, p ${strongest.univariate!.p_display}).`;
+
+  if (multiResult) {
+    const coeffs = Object.entries(multiResult.coefficients);
+    const sigMulti = coeffs.filter(([, c]) => c.p_value < 0.05);
+    const nsSig = coeffs.filter(([, c]) => c.p_value >= 0.05);
+    if (sigMulti.length) {
+      const names = sigMulti.map(([p]) => labels[p] || p).join(", ");
+      text += ` В многофакторной модели независимое значение сохраняют: ${names}.`;
+    }
+    if (nsSig.length) {
+      const names = nsSig.map(([p]) => labels[p] || p).join(", ");
+      text += ` Факторы без независимого значения (p > 0,05): ${names}.`;
+    }
+    text += ` Nagelkerke R² = ${multiResult.nagelkerke_r2.toFixed(3)}.`;
+  }
+  return text;
+}
+
+function LogisticTablePage({ dataset, schema, workspace, setWorkspace }: {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  workspace: LogisticTableWorkspace;
+  setWorkspace: (w: LogisticTableWorkspace | ((prev: LogisticTableWorkspace) => LogisticTableWorkspace)) => void;
+}) {
+  const labels = useMemo(() => Object.fromEntries(schema.map((v) => [v.name, v.label])), [schema]);
+  const binaryOutcomes = useMemo(() => schema.filter((v) => v.type === "binary" || (v.type === "categorical" && v.unique === 2)), [schema]);
+  const availablePredictors = useMemo(() =>
+    schema.filter((v) => v.role !== "id" && v.type !== "text" && v.name !== workspace.outcome && !workspace.rows.some((r) => r.predictor === v.name)),
+  [schema, workspace.outcome, workspace.rows]);
+
+  const multiAbortRef = useRef<AbortController | null>(null);
+
+  // ── univariate runner ──────────────────────────────────────────────────────
+  const runUnivariate = useCallback(async (predictor: string) => {
+    setWorkspace({ ...workspace, rows: workspace.rows.map((r) => r.predictor === predictor ? { ...r, univariateLoading: true, univariateError: null } : r) });
+    try {
+      const res = await api.logisticUnivariate(dataset.rows, workspace.outcome, [predictor]);
+      const data = res.univariate[predictor];
+      setWorkspace((prev) => ({
+        ...prev,
+        rows: prev.rows.map((r) => r.predictor === predictor
+          ? { ...r, univariateLoading: false, univariate: data.error ? null : (data as LogisticUniResult), univariateError: data.error ?? null }
+          : r),
+      }));
+    } catch {
+      setWorkspace((prev) => ({
+        ...prev,
+        rows: prev.rows.map((r) => r.predictor === predictor ? { ...r, univariateLoading: false, univariateError: "Ошибка" } : r),
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataset, workspace.outcome]);
+
+  // ── multivariate runner (auto on change) ──────────────────────────────────
+  const multivariatePredictors = workspace.rows.filter((r) => r.inMultivariate).map((r) => r.predictor);
+  useEffect(() => {
+    if (!workspace.outcome || multivariatePredictors.length < 2) {
+      setWorkspace({ ...workspace, multiResult: null, multiLoading: false });
+      return;
+    }
+    multiAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    multiAbortRef.current = ctrl;
+    setWorkspace((prev) => ({ ...prev, multiLoading: true }));
+    api.logisticMultivariate(dataset.rows, workspace.outcome, multivariatePredictors, {}, 0.95, ctrl.signal)
+      .then((res) => { if (!ctrl.signal.aborted) setWorkspace((prev) => ({ ...prev, multiResult: res, multiLoading: false })); })
+      .catch(() => { if (!ctrl.signal.aborted) setWorkspace((prev) => ({ ...prev, multiLoading: false })); });
+    return () => ctrl.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.outcome, multivariatePredictors.join(","), dataset]);
+
+  const addPredictor = (name: string) => {
+    const newRow: LogisticTableRow = { predictor: name, inMultivariate: false, univariate: null, univariateLoading: true, univariateError: null };
+    const next = { ...workspace, rows: [...workspace.rows, newRow] };
+    setWorkspace(next);
+    runUnivariate(name);
+  };
+
+  const removeRow = (name: string) => {
+    setWorkspace({ ...workspace, rows: workspace.rows.filter((r) => r.predictor !== name), multiResult: null });
+  };
+
+  const toggleMulti = (name: string) => {
+    setWorkspace({ ...workspace, rows: workspace.rows.map((r) => r.predictor === name ? { ...r, inMultivariate: !r.inMultivariate } : r) });
+  };
+
+  // helper: p-value display
+  const pCell = (p: number, pDisplay: string, forMulti = false) => {
+    const sig = p < 0.05;
+    return <span className={`lgt-p ${forMulti ? (sig ? "lgt-p--sig" : "lgt-p--ns") : (sig ? "lgt-p--sig-uni" : "")}`}>{pDisplay}</span>;
+  };
+
+  const multiCoeffs = workspace.multiResult?.coefficients ?? {};
+  const n = workspace.multiResult?.n;
+  const insight = generateInsight(workspace.rows, workspace.multiResult, labels);
+
+  return (
+    <section className="analysis-layout lgt-layout">
+      <div className="analysis-main">
+        <div className="page-heading compact">
+          <div className="heading-title-wrap">
+            <span className="eyebrow">03 · Регрессионный анализ</span>
+            <h1>Логистическая регрессия</h1>
+            <p>Однофакторный и многофакторный анализ предикторов бинарного исхода.</p>
+          </div>
+        </div>
+
+        {/* Outcome selector */}
+        <div className="lgt-outcome-bar">
+          <label className="field">
+            <span>Исход (бинарная переменная)</span>
+            <select value={workspace.outcome} onChange={(e) => setWorkspace({ outcome: e.target.value, rows: [], multiResult: null, multiLoading: false })}>
+              <option value="">— выберите переменную —</option>
+              {binaryOutcomes.map((v) => <option key={v.name} value={v.name}>{v.label} ({v.unique} уровня)</option>)}
+            </select>
+          </label>
+          <span className="lgt-badge">LOGISTIC REGRESSION</span>
+        </div>
+
+        {!workspace.outcome
+          ? <div className="empty-analysis"><div className="empty-analysis-icon">∑</div><h2>Выберите переменную исхода</h2><p>Выберите бинарную переменную исхода, затем добавляйте предикторы в таблицу.</p></div>
+          : (
+            <>
+              {/* Main table */}
+              <div className="lgt-table-wrap">
+                <table className="lgt-table">
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} className="lgt-th-var">Показатель</th>
+                      <th rowSpan={2} className="lgt-th-type">Тип</th>
+                      <th colSpan={3} className="lgt-th-group">Однофакторный анализ</th>
+                      <th colSpan={3} className="lgt-th-group lgt-th-multi">Многофакторный анализ</th>
+                      <th rowSpan={2} className="lgt-th-act"></th>
+                    </tr>
+                    <tr>
+                      <th className="lgt-th-sub">ОШ (95% ДИ)</th>
+                      <th className="lgt-th-sub lgt-th-p">p-value</th>
+                      <th className="lgt-th-sub lgt-th-inc">В модель</th>
+                      <th className="lgt-th-sub lgt-th-multi">ОШ (95% ДИ)</th>
+                      <th className="lgt-th-sub lgt-th-p lgt-th-multi">p-value</th>
+                      <th className="lgt-th-sub lgt-th-multi"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.rows.map((row) => {
+                      const mc = multiCoeffs[row.predictor];
+                      const v = schema.find((s) => s.name === row.predictor);
+                      return (
+                        <tr key={row.predictor} className="lgt-row">
+                          <td className="lgt-td-var">{labels[row.predictor] || row.predictor}</td>
+                          <td><span className={`lgt-type-chip lgt-type-${v?.type ?? "numeric"}`}>{(v?.type ?? "numeric").toUpperCase()}</span></td>
+                          <td className="lgt-td-or">
+                            {row.univariateLoading ? <span className="lgt-loading">…</span>
+                              : row.univariateError ? <span className="lgt-error" title={row.univariateError}>!</span>
+                              : row.univariate ? formatOR(row.univariate.or, row.univariate.ci_lower, row.univariate.ci_upper) : "—"}
+                          </td>
+                          <td className="lgt-td-p">{row.univariate ? pCell(row.univariate.p_value, row.univariate.p_display) : "—"}</td>
+                          <td className="lgt-td-inc">
+                            <input type="checkbox" className="lgt-checkbox" checked={row.inMultivariate}
+                              onChange={() => setWorkspace({ ...workspace, rows: workspace.rows.map((r) => r.predictor === row.predictor ? { ...r, inMultivariate: !r.inMultivariate } : r) })} />
+                          </td>
+                          <td className="lgt-td-or lgt-td-multi">
+                            {!row.inMultivariate ? <span className="lgt-muted">—</span>
+                              : workspace.multiLoading ? <span className="lgt-loading">…</span>
+                              : mc ? formatOR(mc.or, mc.ci_lower, mc.ci_upper) : "—"}
+                          </td>
+                          <td className="lgt-td-p lgt-td-multi">
+                            {row.inMultivariate && mc ? pCell(mc.p_value, mc.p_display, true) : <span className="lgt-muted">—</span>}
+                          </td>
+                          <td className="lgt-td-multi"></td>
+                          <td className="lgt-td-act"><button className="lgt-del" onClick={() => removeRow(row.predictor)} title="Удалить">🗑</button></td>
+                        </tr>
+                      );
+                    })}
+                    {/* Add row */}
+                    {availablePredictors.length > 0 && (
+                      <tr className="lgt-add-row">
+                        <td colSpan={9}>
+                          <select className="lgt-add-select" value="" onChange={(e) => { if (e.target.value) addPredictor(e.target.value); }}>
+                            <option value="">⊕ Добавить предиктор из датасета…</option>
+                            {availablePredictors.map((v) => <option key={v.name} value={v.name}>{v.label}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                {workspace.multiResult && (
+                  <div className="lgt-footer">
+                    <span>N = {workspace.multiResult.n.toLocaleString("ru-RU")} наблюдений</span>
+                    <span>LR χ² = {workspace.multiResult.chi2.toFixed(1)} (p {workspace.multiResult.chi2_p_display})</span>
+                    <span>Nagelkerke R² = {workspace.multiResult.nagelkerke_r2.toFixed(3)}</span>
+                    {workspace.multiResult.warnings.length > 0 && <span className="lgt-warn">⚠ {workspace.multiResult.warnings[0]}</span>}
+                    <span className="lgt-legend"><span className="lgt-dot lgt-dot-ns" /> p &gt; 0,05</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom panels */}
+              <div className="lgt-panels">
+                <div className="lgt-panel lgt-panel-insight">
+                  <div className="lgt-panel-title">Аналитическое резюме</div>
+                  <p className="lgt-insight-text">{insight}</p>
+                </div>
+                <div className="lgt-panel lgt-panel-forest">
+                  <div className="lgt-panel-title">Forest Plot · Многофакторная модель</div>
+                  {workspace.multiResult
+                    ? <LogisticForestPlot result={workspace.multiResult} labels={labels} />
+                    : <div className="lgt-forest-empty">Добавьте ≥ 2 предиктора в многофакторную модель</div>}
+                </div>
+                <div className="lgt-panel lgt-panel-export">
+                  <div className="lgt-panel-title">Экспорт</div>
+                  <p className="lgt-export-hint">Таблица публикационного формата</p>
+                  <button className="button primary lgt-export-btn" disabled>Скачать DOCX</button>
+                  <button className="button secondary lgt-export-btn" disabled>Копировать LaTeX</button>
+                </div>
+              </div>
+            </>
+          )}
       </div>
     </section>
   );

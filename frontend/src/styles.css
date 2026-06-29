@@ -706,3 +706,60 @@ textarea.editor-input.small { min-height: 42px; }
 .corr-report-scatter-remove:hover { color: #ef4444; }
 .scatter-preview-img { display: block; width: 100%; height: auto; }
 .scatter-preview-loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #b0bbc9; }
+
+/* ── Logistic Table Page ───────────────────────────────────────────── */
+.lgt-layout { display: block; }
+.lgt-outcome-bar { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
+.lgt-outcome-bar .field { flex: 1; max-width: 360px; }
+.lgt-badge { flex-shrink: 0; background: #e0e7ff; color: #4338ca; font-size: 10px; font-weight: 700; letter-spacing: .1em; padding: 4px 10px; border-radius: 20px; border: 1px solid #c7d2fe; }
+.lgt-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 20px; }
+.lgt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lgt-table thead { background: #f9fafb; }
+.lgt-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; color: #6b7280; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+.lgt-th-group { text-align: center; border-bottom: 1px solid #e5e7eb; font-size: 11px; }
+.lgt-th-sub { text-align: center; font-size: 10px; color: #9ca3af; border-bottom: 2px solid #e5e7eb; }
+.lgt-th-multi { background: #f5f3ff; color: #6d28d9 !important; }
+.lgt-th-var { min-width: 160px; }
+.lgt-th-act { width: 36px; }
+.lgt-th-p { width: 80px; }
+.lgt-th-inc { width: 60px; text-align: center; }
+.lgt-row td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+.lgt-row:last-child td { border-bottom: none; }
+.lgt-td-or { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lgt-td-p { text-align: center; }
+.lgt-td-inc { text-align: center; }
+.lgt-td-multi { background: #faf9ff; }
+.lgt-td-act { width: 36px; text-align: center; }
+.lgt-type-chip { font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 4px; }
+.lgt-type-numeric { background: #dbeafe; color: #1d4ed8; }
+.lgt-type-binary { background: #d1fae5; color: #065f46; }
+.lgt-type-categorical { background: #fef3c7; color: #92400e; }
+.lgt-type-ordinal { background: #ede9fe; color: #5b21b6; }
+.lgt-p { font-variant-numeric: tabular-nums; font-weight: 600; }
+.lgt-p--sig-uni { color: #2563eb; }
+.lgt-p--sig { color: #2563eb; }
+.lgt-p--ns { color: #ef4444; background: #fee2e2; padding: 1px 6px; border-radius: 4px; }
+.lgt-loading { color: #9ca3af; font-style: italic; }
+.lgt-error { color: #ef4444; font-weight: 700; cursor: help; }
+.lgt-muted { color: #d1d5db; }
+.lgt-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: #6366f1; }
+.lgt-del { background: none; border: none; color: #d1d5db; font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: color .15s; }
+.lgt-del:hover { color: #ef4444; background: #fee2e2; }
+.lgt-add-row td { padding: 4px 8px; }
+.lgt-add-select { width: 100%; border: 1.5px dashed #d1d5db; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: #6b7280; background: transparent; cursor: pointer; outline: none; }
+.lgt-add-select:hover { border-color: #6366f1; color: #4f46e5; }
+.lgt-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 10px 14px; background: #f9fafb; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; }
+.lgt-warn { color: #d97706; }
+.lgt-legend { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+.lgt-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.lgt-dot-ns { background: #fee2e2; border: 1px solid #ef4444; }
+.lgt-panels { display: grid; grid-template-columns: 1fr 1.4fr 260px; gap: 16px; margin-top: 4px; }
+.lgt-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 18px; background: #fff; }
+.lgt-panel-title { font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 10px; letter-spacing: -.01em; }
+.lgt-insight-text { font-size: 13px; color: #4b5563; line-height: 1.6; margin: 0; }
+.lgt-panel-export { background: #1d2430; border-color: #1d2430; }
+.lgt-panel-export .lgt-panel-title { color: #e5e7eb; }
+.lgt-export-hint { font-size: 11px; color: #9ca3af; margin: 0 0 14px; }
+.lgt-export-btn { width: 100%; margin-bottom: 8px; justify-content: center; }
+.lgt-forest-empty { display: flex; align-items: center; justify-content: center; min-height: 120px; color: #9ca3af; font-size: 12px; text-align: center; }
+.forest-plot-svg { width: 100%; height: auto; display: block; }

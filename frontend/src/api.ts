@@ -1,4 +1,4 @@
-import type { CorrelationAnalysis, Dataset, RegressionAnalysis, TableOneAnalysis } from "./types";
+import type { CorrelationAnalysis, Dataset, LogisticMultiResult, LogisticUniResult, RegressionAnalysis, TableOneAnalysis } from "./types";
 
 export interface ProjectMeta {
   project_id: string;
@@ -153,6 +153,36 @@ export const api = {
       const blob = await res.blob();
       return URL.createObjectURL(blob);
     }),
+
+  logisticUnivariate: (
+    rows: Record<string, unknown>[],
+    outcome: string,
+    predictors: string[],
+    variableOverrides: Record<string, unknown> = {},
+    confidenceLevel = 0.95,
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/analyze/logistic-univariate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({ rows, outcome, predictors, variable_overrides: variableOverrides, confidence_level: confidenceLevel }),
+    }).then(parse<{ univariate: Record<string, LogisticUniResult & { error?: string }> }>),
+
+  logisticMultivariate: (
+    rows: Record<string, unknown>[],
+    outcome: string,
+    predictors: string[],
+    variableOverrides: Record<string, unknown> = {},
+    confidenceLevel = 0.95,
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/analyze/logistic-multivariate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({ rows, outcome, predictors, variable_overrides: variableOverrides, confidence_level: confidenceLevel }),
+    }).then(parse<LogisticMultiResult>),
 
   saveProject: (payload: Record<string, unknown>) =>
     fetch("/api/project/save", {

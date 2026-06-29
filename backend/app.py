@@ -722,6 +722,102 @@ def run_regression(request: RegressionRequest) -> dict[str, Any]:
     }
 
 
+class LogisticTableRequest(BaseModel):
+    rows: list[dict[str, Any]]
+    outcome: str
+    predictors: list[str] = Field(min_length=1)
+    confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0)
+    variable_overrides: dict[str, dict[str, Any]] = {}
+
+
+def _logistic_one(rows: list[dict], outcome: str, predictor: str, confidence_level: float, overrides: dict) -> dict[str, Any]:
+    req = RegressionRequest(rows=rows, outcome=outcome, predictors=[predictor],
+                            confidence_level=confidence_level, variable_overrides=overrides)
+    result = run_regression(req)
+    coeff = next((c for c in result["coefficients"] if c["term"] != "Константа"), None)
+    if coeff is None:
+        raise HTTPException(422, f"Не удалось оценить коэффициент для {predictor}")
+    return {
+        "or": coeff["effect"],
+        "ci_lower": coeff["effect_ci_lower"],
+        "ci_upper": coeff["effect_ci_upper"],
+        "p_value": coeff["p_value"],
+        "p_display": coeff["p_display"],
+        "n": result["n"],
+        "n_events": int(sum(1 for r in rows if str(r.get(outcome, "")) == result.get("event_level", ""))),
+    }
+
+
+def _nagelkerke_r2(log_lik: float, null_ll: float, n: int) -> float:
+    cox_snell = 1 - math.exp(2 * (null_ll - log_lik) / n)
+    max_r2 = 1 - math.exp(2 * null_ll / n)
+    return cox_snell / max_r2 if max_r2 else 0.0
+
+
+@app.post("/api/analyze/logistic-univariate")
+def logistic_univariate(request: LogisticTableRequest) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    for predictor in request.predictors:
+        try:
+            results[predictor] = _logistic_one(
+                request.rows, request.outcome, predictor,
+                request.confidence_level, request.variable_overrides
+            )
+        except HTTPException as exc:
+            results[predictor] = {"error": exc.detail}
+    return {"univariate": results}
+
+
+@app.post("/api/analyze/logistic-multivariate")
+def logistic_multivariate(request: LogisticTableRequest) -> dict[str, Any]:
+    req = RegressionRequest(rows=request.rows, outcome=request.outcome, predictors=request.predictors,
+                            confidence_level=request.confidence_level, variable_overrides=request.variable_overrides)
+    result = run_regression(req)
+
+    # Per-predictor coefficients (skip intercept)
+    coeffs: dict[str, Any] = {}
+    for coeff in result["coefficients"]:
+        if coeff["term"] == "Константа":
+            continue
+        # term may be "predictor" or "predictor: level (реф. x)"
+        term = coeff["term"]
+        pred = next((p for p in request.predictors if term == p or term.startswith(p + ":")), term)
+        coeffs[pred] = {
+            "term": term,
+            "or": coeff["effect"],
+            "ci_lower": coeff["effect_ci_lower"],
+            "ci_upper": coeff["effect_ci_upper"],
+            "p_value": coeff["p_value"],
+            "p_display": coeff["p_display"],
+        }
+
+    # Model-level stats
+    n = result["n"]
+    metrics = result["metrics"]
+    df_work = to_frame(request.rows)[[request.outcome, *request.predictors]].dropna()
+    y_arr = (df_work[request.outcome].astype(str) == str(result.get("event_level", ""))).astype(float).to_numpy()
+    event_rate = float(y_arr.mean())
+    null_p = min(max(event_rate, 1e-12), 1 - 1e-12)
+    null_ll = float(len(y_arr) * (event_rate * math.log(null_p) + (1 - event_rate) * math.log(1 - null_p)))
+    pseudo_r2 = metrics.get("pseudo_r_squared", 0.0)
+    log_lik = null_ll * (1 - pseudo_r2) if pseudo_r2 != 1 else 0.0
+    lr_chi2 = 2 * (log_lik - null_ll)
+    chi2_p = float(stats.chi2.sf(abs(lr_chi2), df=len(request.predictors)))
+    nagelkerke = _nagelkerke_r2(log_lik, null_ll, n)
+
+    return {
+        "coefficients": coeffs,
+        "n": n,
+        "n_events": int(y_arr.sum()),
+        "chi2": abs(lr_chi2),
+        "chi2_p": chi2_p,
+        "chi2_p_display": p_text(chi2_p),
+        "nagelkerke_r2": nagelkerke,
+        "fit_method": result["fit_method"],
+        "warnings": result["warnings"],
+    }
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": app.version}
