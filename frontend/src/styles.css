@@ -91,13 +91,23 @@ main { grid-column: 2; min-width: 0; min-height: 100vh; }
 .status-ok { color: var(--green); font-size: 10px; font-weight: 650; }
 .panel-footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 .text-button { padding: 4px; border: 0; background: none; color: var(--blue); font-weight: 650; font-size: 10px; }
-.table-scroll { width: 100%; overflow-x: auto; }
+.table-scroll { width: 100%; overflow-x: auto; max-height: 560px; overflow-y: auto; }
 table { border-collapse: collapse; width: 100%; }
 .data-table { min-width: 900px; }
+.data-table thead { position: sticky; top: 0; z-index: 2; }
 .data-table th { padding: 10px 13px; background: #f7f8fa; border-bottom: 1px solid var(--line); color: #465269; text-align: left; font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 600; }
 .data-table th small { display: block; margin-top: 4px; color: #98a2b3; font-family: Inter, sans-serif; font-size: 8px; font-weight: 500; text-transform: uppercase; }
-.data-table td { padding: 9px 13px; border-bottom: 1px solid #edf0f4; color: #344054; font-family: "JetBrains Mono", monospace; font-size: 10px; white-space: nowrap; }
+.data-table td { padding: 8px 13px; border-bottom: 1px solid #edf0f4; color: #344054; font-family: "JetBrains Mono", monospace; font-size: 10px; white-space: nowrap; }
 .data-table tr:last-child td { border-bottom: 0; }
+.ds-row-num { color: #b0b8c9 !important; font-size: 9px !important; text-align: right; min-width: 36px; user-select: none; background: #fafbfc; border-right: 1px solid #edf0f4; }
+.ds-cell { cursor: pointer; transition: background .1s; }
+.ds-cell:hover { background: #f0f5ff; }
+.ds-cell--editing { background: #eaf1ff !important; padding: 0 !important; }
+.ds-cell-input { width: 100%; min-width: 80px; padding: 8px 13px; border: none; outline: 2px solid var(--blue); outline-offset: -2px; background: #eaf1ff; font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--ink); }
+.ds-null { color: #c4c9d4; font-style: italic; }
+.ds-pagination { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.ds-pagination .button { min-height: 26px; padding: 3px 9px; font-size: 13px; line-height: 1; }
+.ds-pagination span { padding: 0 6px; white-space: nowrap; }
 
 .variable-panel { overflow-x: auto; }
 .variable-row { display: grid; grid-template-columns: 70px minmax(230px, 1.5fr) 150px 130px 110px 90px; min-width: 900px; align-items: center; gap: 12px; padding: 10px 15px; border-bottom: 1px solid #e8ebf0; font-size: 11px; }
