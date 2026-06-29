@@ -48,3 +48,36 @@ export interface TableOneAnalysis {
   note: string;
   generated_at: string;
 }
+
+export interface RegressionCoefficient {
+  term: string;
+  estimate: number;
+  standard_error: number;
+  p_value: number;
+  p_display: string;
+  ci_lower: number;
+  ci_upper: number;
+  effect: number;
+  effect_ci_lower: number;
+  effect_ci_upper: number;
+}
+
+export interface RegressionAnalysis {
+  model_type: "linear" | "logistic";
+  fit_method: "ols" | "mle" | "firth";
+  warnings: string[];
+  outcome: string;
+  event_level: string | null;
+  n: number;
+  excluded: number;
+  confidence_level: number;
+  references: string[];
+  coefficients: RegressionCoefficient[];
+  metrics: Record<string, number>;
+  diagnostics: {
+    auc: number;
+    roc_curve: { fpr: number; tpr: number; threshold: number }[];
+    predictions: { actual: 0 | 1; probability: number }[];
+  } | null;
+  generated_at: string;
+}

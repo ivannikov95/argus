@@ -21,15 +21,16 @@ from docx.shared import Mm, Pt
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from PIL import Image, ImageDraw
 from pydantic import BaseModel, Field
-from scipy import stats
+from scipy import optimize, stats
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECTS_DIR = ROOT / "data" / "projects"
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="MedStat Studio API", version="0.1.0")
+app = FastAPI(title="Argus API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -57,6 +58,7 @@ class ProjectSaveRequest(BaseModel):
     rows: list[dict[str, Any]]
     variable_overrides: dict[str, dict[str, Any]] = {}
     slides: list[dict[str, Any]] = []          # all table slides
+    regression: dict[str, Any] | None = None
     last_analysis: dict[str, Any] | None = None  # backward compat
     table_settings: dict[str, Any] = {}          # backward compat
 
@@ -78,8 +80,17 @@ class DatasetProfileRequest(BaseModel):
     file_name: str = "Загруженный датасет"
 
 
+class RegressionRequest(BaseModel):
+    rows: list[dict[str, Any]]
+    outcome: str
+    predictors: list[str] = Field(min_length=1)
+    variable_overrides: dict[str, dict[str, Any]] = {}
+    confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0)
+
+
 class ReportExportRequest(BaseModel):
-    tables: list[ExportRequest]
+    tables: list[ExportRequest] = []
+    regression: dict[str, Any] | None = None
 
 
 def clean_scalar(value: Any) -> Any:
@@ -439,6 +450,255 @@ def run_table_one(request: TableOneRequest) -> dict[str, Any]:
     }
 
 
+def _positive_level(levels: list[str]) -> str:
+    preferred = {"1", "да", "yes", "true", "event", "событие", "умер", "death", "positive"}
+    return next((level for level in levels if level.strip().lower() in preferred), levels[-1])
+
+
+def _regression_design(request: RegressionRequest) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[str], list[str], str, str | None]:
+    df = to_frame(request.rows)
+    if request.outcome not in df.columns:
+        raise HTTPException(422, "Исход отсутствует в датасете")
+    predictors = list(dict.fromkeys(request.predictors))
+    if request.outcome in predictors:
+        raise HTTPException(422, "Исход нельзя одновременно использовать как предиктор")
+    missing = [name for name in predictors if name not in df.columns]
+    if missing:
+        raise HTTPException(422, f"Предикторы отсутствуют в датасете: {', '.join(missing)}")
+
+    schema = {column: infer_column(df[column]) for column in [request.outcome, *predictors]}
+    for column, override in request.variable_overrides.items():
+        if column in schema:
+            schema[column].update({key: override[key] for key in ("type", "role") if key in override})
+
+    work = df[[request.outcome, *predictors]].copy().dropna()
+    numeric_columns = [name for name in [request.outcome, *predictors] if schema[name]["type"] == "numeric"]
+    for name in numeric_columns:
+        work[name] = pd.to_numeric(work[name], errors="coerce")
+    work = work.dropna()
+    if work.empty:
+        raise HTTPException(422, "После исключения пропусков не осталось наблюдений")
+
+    outcome_levels = sorted(work[request.outcome].astype(str).unique().tolist())
+    logistic = schema[request.outcome]["type"] == "binary" or len(outcome_levels) == 2
+    event_level: str | None = None
+    if logistic:
+        if len(outcome_levels) != 2:
+            raise HTTPException(422, "Для логистической регрессии исход должен иметь ровно два уровня")
+        event_level = _positive_level(outcome_levels)
+        y = (work[request.outcome].astype(str) == event_level).astype(float).to_numpy()
+    else:
+        y_series = pd.to_numeric(work[request.outcome], errors="coerce")
+        valid = y_series.notna()
+        work, y = work.loc[valid], y_series.loc[valid].to_numpy(dtype=float)
+        if len(np.unique(y)) < 2:
+            raise HTTPException(422, "Числовой исход не варьирует")
+
+    columns: list[np.ndarray] = [np.ones(len(work), dtype=float)]
+    terms = ["Константа"]
+    references: list[str] = []
+    for predictor in predictors:
+        if schema[predictor]["type"] == "numeric":
+            values = pd.to_numeric(work[predictor], errors="coerce").to_numpy(dtype=float)
+            if np.nanstd(values) == 0:
+                continue
+            columns.append(values)
+            terms.append(predictor)
+            continue
+        levels = sorted(work[predictor].astype(str).unique().tolist())
+        if len(levels) < 2:
+            continue
+        reference = levels[0]
+        references.append(f"{predictor}: {reference}")
+        values = work[predictor].astype(str)
+        for level in levels[1:]:
+            columns.append((values == level).astype(float).to_numpy())
+            terms.append(f"{predictor}: {level} (реф. {reference})")
+
+    if len(columns) == 1:
+        raise HTTPException(422, "Выбранные предикторы не варьируют")
+    x = np.column_stack(columns)
+    if len(work) <= x.shape[1] + 1:
+        raise HTTPException(422, "Недостаточно полных наблюдений для числа параметров модели")
+    if np.linalg.matrix_rank(x) < x.shape[1]:
+        raise HTTPException(422, "Предикторы линейно зависимы; уберите дублирующие показатели")
+    return work, y, x, terms, references, "logistic" if logistic else "linear", event_level
+
+
+def _logistic_diagnostics(y: np.ndarray, probabilities: np.ndarray) -> dict[str, Any]:
+    positives = int(y.sum())
+    negatives = int(len(y) - positives)
+    ranks = stats.rankdata(probabilities)
+    auc = float((ranks[y == 1].sum() - positives * (positives + 1) / 2) / (positives * negatives))
+
+    order = np.argsort(-probabilities, kind="stable")
+    sorted_probabilities = probabilities[order]
+    sorted_y = y[order]
+    true_positives = np.cumsum(sorted_y)
+    false_positives = np.cumsum(1 - sorted_y)
+    boundaries = np.flatnonzero(np.r_[sorted_probabilities[:-1] != sorted_probabilities[1:], True])
+    roc_curve = [{"fpr": 0.0, "tpr": 0.0, "threshold": 1.0}]
+    roc_curve.extend({
+        "fpr": float(false_positives[index] / negatives),
+        "tpr": float(true_positives[index] / positives),
+        "threshold": float(sorted_probabilities[index]),
+    } for index in boundaries)
+    if len(roc_curve) > 260:
+        keep = np.unique(np.linspace(0, len(roc_curve) - 1, 260, dtype=int))
+        roc_curve = [roc_curve[index] for index in keep]
+    return {
+        "auc": auc,
+        "roc_curve": roc_curve,
+        "predictions": [
+            {"actual": int(actual), "probability": float(probability)}
+            for actual, probability in zip(y, probabilities)
+        ],
+    }
+
+
+def _fit_firth_logistic(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    beta = np.zeros(x.shape[1], dtype=float)
+
+    def penalized_log_likelihood(candidate: np.ndarray) -> float:
+        eta = np.clip(x @ candidate, -40, 40)
+        probabilities = 1 / (1 + np.exp(-eta))
+        weights = np.maximum(probabilities * (1 - probabilities), 1e-10)
+        information = x.T @ (x * weights[:, None])
+        sign, log_determinant = np.linalg.slogdet(information)
+        if sign <= 0:
+            return -math.inf
+        return float(y @ eta - np.logaddexp(0, eta).sum() + 0.5 * log_determinant)
+
+    for _ in range(150):
+        eta = np.clip(x @ beta, -40, 40)
+        probabilities = 1 / (1 + np.exp(-eta))
+        weights = np.maximum(probabilities * (1 - probabilities), 1e-10)
+        information = x.T @ (x * weights[:, None])
+        try:
+            covariance = np.linalg.inv(information)
+        except np.linalg.LinAlgError as exc:
+            raise HTTPException(422, "Firth-модель не может быть оценена для выбранных предикторов") from exc
+        leverage = weights * np.einsum("ij,jk,ik->i", x, covariance, x)
+        adjusted_score = x.T @ (y - probabilities + leverage * (0.5 - probabilities))
+        step = covariance @ adjusted_score
+        if np.max(np.abs(step)) < 1e-8:
+            return beta, covariance, probabilities
+        current_likelihood = penalized_log_likelihood(beta)
+        scale = 1.0
+        while scale > 1e-6 and penalized_log_likelihood(beta + scale * step) < current_likelihood:
+            scale *= 0.5
+        beta = beta + scale * step
+    raise HTTPException(422, "Firth-модель не сошлась; сократите число предикторов")
+
+
+def run_regression(request: RegressionRequest) -> dict[str, Any]:
+    work, y, x, terms, references, model_type, event_level = _regression_design(request)
+    confidence = request.confidence_level
+    alpha = 1 - confidence
+    diagnostics = None
+    warnings: list[str] = []
+    fit_method = "ols" if model_type == "linear" else "mle"
+
+    if model_type == "linear":
+        beta, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
+        fitted = x @ beta
+        residuals = y - fitted
+        degrees_freedom = len(y) - x.shape[1]
+        sigma2 = float(residuals @ residuals / degrees_freedom)
+        covariance = sigma2 * np.linalg.inv(x.T @ x)
+        standard_errors = np.sqrt(np.diag(covariance))
+        statistics = beta / standard_errors
+        p_values = 2 * stats.t.sf(np.abs(statistics), degrees_freedom)
+        critical = float(stats.t.ppf(1 - alpha / 2, degrees_freedom))
+        lower, upper = beta - critical * standard_errors, beta + critical * standard_errors
+        total_sum = float(((y - y.mean()) ** 2).sum())
+        residual_sum = float((residuals**2).sum())
+        r_squared = 1 - residual_sum / total_sum if total_sum else 0.0
+        adjusted = 1 - (1 - r_squared) * (len(y) - 1) / degrees_freedom
+        metrics = {"r_squared": r_squared, "adjusted_r_squared": adjusted, "rmse": math.sqrt(residual_sum / len(y))}
+    else:
+        def objective(beta: np.ndarray) -> float:
+            eta = x @ beta
+            return float(np.logaddexp(0, eta).sum() - y @ eta)
+
+        def gradient(beta: np.ndarray) -> np.ndarray:
+            eta = np.clip(x @ beta, -40, 40)
+            probabilities = 1 / (1 + np.exp(-eta))
+            return x.T @ (probabilities - y)
+
+        fit = optimize.minimize(objective, np.zeros(x.shape[1]), jac=gradient, method="BFGS")
+        beta = fit.x
+        try:
+            eta = np.clip(x @ beta, -40, 40)
+            probabilities = 1 / (1 + np.exp(-eta))
+            weights = np.maximum(probabilities * (1 - probabilities), 1e-12)
+            information = x.T @ (x * weights[:, None])
+            covariance = np.linalg.inv(information)
+            mle_standard_errors = np.sqrt(np.diag(covariance))
+            unstable = (
+                (not fit.success and np.linalg.norm(fit.jac) > 1e-4)
+                or not np.all(np.isfinite(mle_standard_errors))
+                or np.max(np.abs(beta)) > 10
+                or np.max(mle_standard_errors) > 10
+            )
+        except np.linalg.LinAlgError:
+            unstable = True
+        if unstable:
+            beta, covariance, probabilities = _fit_firth_logistic(x, y)
+            fit_method = "firth"
+            warnings.append(
+                "Обнаружено полное или квазиполное разделение исходов. Применена логистическая регрессия Фирта; оценки конечны, но при малом числе событий требуют осторожной интерпретации."
+            )
+        standard_errors = np.sqrt(np.diag(covariance))
+        statistics = beta / standard_errors
+        p_values = 2 * stats.norm.sf(np.abs(statistics))
+        critical = float(stats.norm.ppf(1 - alpha / 2))
+        lower, upper = beta - critical * standard_errors, beta + critical * standard_errors
+        log_likelihood = -objective(beta)
+        event_rate = float(y.mean())
+        null_probability = min(max(event_rate, 1e-12), 1 - 1e-12)
+        null_ll = float((y * math.log(null_probability) + (1 - y) * math.log(1 - null_probability)).sum())
+        metrics = {
+            "pseudo_r_squared": 1 - log_likelihood / null_ll,
+            "accuracy": float(((probabilities >= 0.5) == y).mean()),
+            "aic": 2 * x.shape[1] - 2 * log_likelihood,
+        }
+        diagnostics = _logistic_diagnostics(y, probabilities)
+
+    coefficients = []
+    for index, term in enumerate(terms):
+        effect = math.exp(float(np.clip(beta[index], -700, 700))) if model_type == "logistic" else float(beta[index])
+        effect_lower = math.exp(float(np.clip(lower[index], -700, 700))) if model_type == "logistic" else float(lower[index])
+        effect_upper = math.exp(float(np.clip(upper[index], -700, 700))) if model_type == "logistic" else float(upper[index])
+        coefficients.append({
+            "term": term,
+            "estimate": float(beta[index]),
+            "standard_error": float(standard_errors[index]),
+            "p_value": float(p_values[index]),
+            "p_display": p_text(float(p_values[index])),
+            "ci_lower": float(lower[index]),
+            "ci_upper": float(upper[index]),
+            "effect": effect,
+            "effect_ci_lower": effect_lower,
+            "effect_ci_upper": effect_upper,
+        })
+    return {
+        "model_type": model_type,
+        "outcome": request.outcome,
+        "event_level": event_level,
+        "n": int(len(work)),
+        "excluded": int(len(request.rows) - len(work)),
+        "confidence_level": confidence,
+        "references": references,
+        "coefficients": coefficients,
+        "metrics": metrics,
+        "diagnostics": diagnostics,
+        "fit_method": fit_method,
+        "warnings": warnings,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": app.version}
@@ -475,6 +735,11 @@ async def import_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
 @app.post("/api/analyze/table-one")
 def table_one(request: TableOneRequest) -> dict[str, Any]:
     return run_table_one(request)
+
+
+@app.post("/api/analyze/regression")
+def regression(request: RegressionRequest) -> dict[str, Any]:
+    return run_regression(request)
 
 
 @app.post("/api/project/save")
@@ -661,6 +926,93 @@ def _stream_document(document: Document, filename: str) -> StreamingResponse:
     )
 
 
+def _append_regression_block(document: Document, payload: dict[str, Any]) -> None:
+    analysis = payload.get("analysis") or {}
+    labels = payload.get("labels") or {}
+    cutoff = float(payload.get("cutoff", 0.5))
+    logistic = analysis.get("model_type") == "logistic"
+    title = document.add_paragraph()
+    _apply_tnr(title.add_run("Регрессионный анализ"), 14, True)
+    subtitle = document.add_paragraph()
+    outcome = labels.get(analysis.get("outcome"), analysis.get("outcome", "—"))
+    model_name = "Бинарная логистическая регрессия" if logistic else "Линейная регрессия"
+    _apply_tnr(subtitle.add_run(f"{model_name}. Исход: {outcome}. N = {analysis.get('n', 0)}."), 11, False)
+    for warning in analysis.get("warnings") or []:
+        warning_p = document.add_paragraph()
+        _apply_tnr(warning_p.add_run("Предупреждение. "), 10, True)
+        _apply_tnr(warning_p.add_run(str(warning)), 10, False)
+
+    coefficients = analysis.get("coefficients") or []
+    table = document.add_table(rows=1, cols=6)
+    table.style = "Table Grid"
+    headers = ["Параметр", "β", "SE", "OR" if logistic else "Эффект", "ДИ", "p-value"]
+    for cell, text_value in zip(table.rows[0].cells, headers):
+        _apply_tnr(cell.paragraphs[0].add_run(text_value), 10, True)
+    for row in coefficients:
+        cells = table.add_row().cells
+        term = str(row.get("term", "—"))
+        name, separator, detail = term.partition(": ")
+        term_label = f"{labels.get(name, name)}: {detail}" if separator else labels.get(name, name)
+        values = [
+            term_label,
+            fmt_number(float(row.get("estimate", math.nan)), 3),
+            fmt_number(float(row.get("standard_error", math.nan)), 3),
+            fmt_number(float(row.get("effect", math.nan)), 3),
+            f"{fmt_number(float(row.get('effect_ci_lower', math.nan)), 3)}–{fmt_number(float(row.get('effect_ci_upper', math.nan)), 3)}",
+            str(row.get("p_display", "—")),
+        ]
+        for cell, text_value in zip(cells, values):
+            _apply_tnr(cell.paragraphs[0].add_run(text_value), 10, False)
+
+    diagnostics = analysis.get("diagnostics") if logistic else None
+    if diagnostics:
+        image = Image.new("RGB", (800, 480), "white")
+        draw = ImageDraw.Draw(image)
+        left, top, right, bottom = 82, 38, 752, 402
+        draw.line((left, bottom, right, bottom), fill="#52627a", width=3)
+        draw.line((left, bottom, left, top), fill="#52627a", width=3)
+        draw.line((left, bottom, right, top), fill="#c4ccd8", width=2)
+        points = [
+            (left + float(point.get("fpr", 0)) * (right - left), bottom - float(point.get("tpr", 0)) * (bottom - top))
+            for point in diagnostics.get("roc_curve", [])
+        ]
+        if len(points) >= 2:
+            draw.line(points, fill="#1761c5", width=6, joint="curve")
+        draw.text((350, 438), "1 - Specificity", fill="#344054")
+        draw.text((12, 208), "Sensitivity", fill="#344054")
+        draw.text((570, 52), f"AUC = {float(diagnostics.get('auc', 0)):.3f}", fill="#071d47")
+        image_stream = io.BytesIO()
+        image.save(image_stream, format="PNG")
+        image_stream.seek(0)
+        chart_p = document.add_paragraph()
+        chart_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        chart_p.add_run().add_picture(image_stream, width=Mm(130))
+        predictions = diagnostics.get("predictions") or []
+        tp = tn = fp = fn = 0
+        for prediction in predictions:
+            positive = float(prediction.get("probability", 0)) >= cutoff
+            actual = int(prediction.get("actual", 0))
+            if actual == 1 and positive: tp += 1
+            elif actual == 0 and not positive: tn += 1
+            elif actual == 0 and positive: fp += 1
+            else: fn += 1
+        ratio = lambda numerator, denominator: numerator / denominator if denominator else 0
+        diagnostic_p = document.add_paragraph()
+        diagnostic_text = (
+            f"ROC AUC = {fmt_number(float(diagnostics.get('auc', math.nan)), 3)}; cut-off = {fmt_number(cutoff, 2)}; "
+            f"чувствительность = {fmt_number(ratio(tp, tp + fn) * 100, 1)}%; "
+            f"специфичность = {fmt_number(ratio(tn, tn + fp) * 100, 1)}%; "
+            f"диагностическая эффективность = {fmt_number(ratio(tp + tn, len(predictions)) * 100, 1)}%."
+        )
+        _apply_tnr(diagnostic_p.add_run(diagnostic_text), 10, False)
+        matrix = document.add_table(rows=3, cols=3)
+        matrix.style = "Table Grid"
+        matrix_values = [["Факт / прогноз", "+", "−"], ["+", str(tp), str(fn)], ["−", str(fp), str(tn)]]
+        for row_index, values in enumerate(matrix_values):
+            for cell, value in zip(matrix.rows[row_index].cells, values):
+                _apply_tnr(cell.paragraphs[0].add_run(value), 10, row_index == 0 or value in {"+", "−"})
+
+
 @app.post("/api/dataset/profile")
 def compute_profile(request: DatasetProfileRequest) -> dict[str, Any]:
     df = to_frame(request.rows)
@@ -677,12 +1029,16 @@ def export_docx(request: ExportRequest) -> StreamingResponse:
 
 @app.post("/api/export/report.docx")
 def export_report(request: ReportExportRequest) -> StreamingResponse:
-    if not request.tables:
-        raise HTTPException(422, "Отчёт не содержит таблиц")
+    if not request.tables and not request.regression:
+        raise HTTPException(422, "Отчёт не содержит результатов")
     document = Document()
     _setup_document(document)
     for index, table_request in enumerate(request.tables):
         if index > 0:
             document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         _append_table_block(document, table_request)
+    if request.regression:
+        if request.tables:
+            document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+        _append_regression_block(document, request.regression)
     return _stream_document(document, "report.docx")

@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { api } from "./api";
 import type { ExportOptions, ProjectMeta } from "./api";
-import type { AnalysisRow, Dataset, TableOneAnalysis, VariableSchema } from "./types";
+import type { AnalysisRow, Dataset, RegressionAnalysis, TableOneAnalysis, VariableSchema } from "./types";
+import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./draftStore";
 
 // One independent table page in the multi-table report
 interface TableSlide {
@@ -14,7 +15,21 @@ interface TableSlide {
   analysis: TableOneAnalysis | null;
 }
 
-type Page = "home" | "dataset" | "variables" | "table";
+type Page = "home" | "dataset" | "variables" | "table" | "regression" | "report";
+
+function ArgusMark({ className = "" }: { className?: string }) {
+  return <img className={`argus-mark ${className}`.trim()} src="/argus-mark.svg" alt="" aria-hidden="true" />;
+}
+
+function projectIdFromPath(pathname: string) {
+  const encodedId = pathname.match(/^\/project\/([^/]+)/)?.[1];
+  if (!encodedId) return null;
+  try {
+    return decodeURIComponent(encodedId);
+  } catch {
+    return null;
+  }
+}
 
 interface TableEditorSettings {
   title: string;
@@ -34,6 +49,24 @@ interface TableEditorSettings {
   numericTest: "auto" | "parametric" | "nonparametric";
   categoricalTest: "auto" | "chi_square" | "fisher";
   confidenceLevel: 0.90 | 0.95 | 0.99;
+}
+
+interface WorkspaceDraft {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  slides: TableSlide[];
+  currentIndex: number;
+  projectName: string;
+  page: Page;
+  regression?: RegressionWorkspace;
+}
+
+interface RegressionWorkspace {
+  outcome: string;
+  predictors: string[];
+  confidenceLevel: number;
+  cutoff: number;
+  result: RegressionAnalysis | null;
 }
 
 const DEFAULT_SETTINGS: TableEditorSettings = {
@@ -61,9 +94,9 @@ const nav: { id: Page | string; label: string; mark: string; enabled: boolean }[
   { id: "dataset", label: "Датасет", mark: "▦", enabled: true },
   { id: "variables", label: "Переменные", mark: "≡", enabled: true },
   { id: "table", label: "Описательная статистика", mark: "▥", enabled: true },
-  { id: "groups", label: "Сравнение групп", mark: "⇄", enabled: false },
+  { id: "regression", label: "Регрессия", mark: "∑", enabled: true },
+  { id: "report", label: "Отчёт", mark: "▤", enabled: true },
   { id: "correlation", label: "Корреляции", mark: "⌁", enabled: false },
-  { id: "regression", label: "Регрессия", mark: "∑", enabled: false },
   { id: "survival", label: "Выживаемость", mark: "◷", enabled: false },
 ];
 
@@ -90,18 +123,38 @@ function makeSlide(overrides: Partial<TableSlide> & { id: string }): TableSlide 
   return { group: null, selected: [], settings: { ...DEFAULT_SETTINGS }, analysis: null, ...overrides };
 }
 
+function slidesForDataset(dataset: Dataset) {
+  const suggestedGroup =
+    dataset.schema.find((v) => v.name.toLowerCase().includes("group") && v.unique <= 8)?.name ??
+    dataset.schema.find((v) => ["binary", "categorical"].includes(v.type) && v.role !== "id" && v.unique <= 8)?.name ??
+    null;
+  return [makeSlide({ id: "s1", group: suggestedGroup })];
+}
+
+function regressionForDataset(dataset: Dataset): RegressionWorkspace {
+  const eligible = dataset.schema.filter((v) => v.role !== "id" && (v.type === "numeric" || v.type === "binary"));
+  return {
+    outcome: eligible.find((v) => v.role === "outcome")?.name ?? eligible.find((v) => v.type === "binary")?.name ?? eligible[0]?.name ?? "",
+    predictors: [],
+    confidenceLevel: 0.95,
+    cutoff: 0.5,
+    result: null,
+  };
+}
+
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
   // Read URL once synchronously to set correct initial state — no home-page flash
   const [page, setPage] = useState<Page>(() => {
-    const m = window.location.pathname.match(/\/(dataset|variables|table)$/);
+    const m = window.location.pathname.match(/\/(dataset|variables|table|regression|report)$/);
     return (m?.[1] as Page) ?? "home";
   });
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [schema, setSchema] = useState<VariableSchema[]>([]);
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
+  const [regression, setRegression] = useState<RegressionWorkspace>({ outcome: "", predictors: [], confidenceLevel: 0.95, cutoff: 0.5, result: null });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [projectName, setProjectName] = useState("Новое исследование");
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -112,15 +165,13 @@ function App() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   // true while loading a project from URL — set synchronously so first render shows spinner
-  const [restoring, setRestoring] = useState(() =>
-    /^\/project\//.test(window.location.pathname)
-  );
+  const [restoring, setRestoring] = useState(true);
   // project ID extracted from URL for startup load
-  const startupPid = useRef(
-    window.location.pathname.match(/^\/project\/([^/]+)/)?.[1] ?? null
-  );
+  const startupPid = useRef(projectIdFromPath(window.location.pathname));
+  const startupPage = useRef(page);
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const skipNextAutoSave = useRef(false); // prevents auto-save right after project load
 
@@ -174,11 +225,8 @@ function App() {
   const setNewDataset = (next: Dataset) => {
     setDataset(next);
     setSchema(next.schema);
-    const suggestedGroup =
-      next.schema.find((v) => v.name.toLowerCase().includes("group") && v.unique <= 8)?.name ??
-      next.schema.find((v) => ["binary", "categorical"].includes(v.type) && v.role !== "id" && v.unique <= 8)?.name ??
-      null;
-    setSlides([makeSlide({ id: "s1", group: suggestedGroup })]);
+    setSlides(slidesForDataset(next));
+    setRegression(regressionForDataset(next));
     setCurrentIndex(0);
   };
 
@@ -189,9 +237,29 @@ function App() {
     refreshProjects();
     const pid = startupPid.current;
     if (pid) {
-      loadProject(pid)
-        .catch(() => navigate("/", { replace: true }))
-        .finally(() => setRestoring(false));
+      loadProject(pid, startupPage.current).then((loaded) => {
+        if (!loaded) {
+          setPage("home");
+          navigate("/", { replace: true });
+        }
+      }).finally(() => setRestoring(false));
+    } else {
+      loadWorkspaceDraft<WorkspaceDraft>().then((draft) => {
+        if (draft?.dataset?.rows && Array.isArray(draft.slides)) {
+          setDataset(draft.dataset);
+          setSchema(draft.schema?.length ? draft.schema : draft.dataset.schema);
+          setSlides(draft.slides.map((item) => makeSlide({ ...item, settings: { ...DEFAULT_SETTINGS, ...item.settings } })));
+          setCurrentIndex(Math.min(draft.currentIndex ?? 0, Math.max(draft.slides.length - 1, 0)));
+          setProjectName(draft.projectName || "Новое исследование");
+          setRegression(draft.regression ?? regressionForDataset(draft.dataset));
+          setPage(draft.page === "home" ? "home" : draft.page || "dataset");
+        } else if (/^\/project\//.test(window.location.pathname)) {
+          setPage("home");
+          navigate("/", { replace: true });
+        }
+      }).catch(() => {
+        setPage("home");
+      }).finally(() => setRestoring(false));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -217,10 +285,38 @@ function App() {
     if (!file) return;
     setBusy(`Читаю ${file.name}…`);
     try {
-      setNewDataset(await api.upload(file));
-      setProjectName(file.name.replace(/\.[^.]+$/, ""));
-      setCurrentProjectId(null);
-      setSaveStatus("dirty");
+      const next = await api.upload(file);
+      const nextSlides = slidesForDataset(next);
+      const nextRegression = regressionForDataset(next);
+      setNewDataset(next);
+      if (currentProjectId) {
+        await api.saveProject({
+          project_id: currentProjectId,
+          project_name: projectName,
+          file_name: next.file_name,
+          rows: next.rows,
+          variable_overrides: Object.fromEntries(next.schema.map((item) => [item.name, item])),
+          slides: nextSlides,
+          regression: nextRegression,
+          last_analysis: null,
+          table_settings: nextSlides[0].settings,
+        });
+        setSaveStatus("saved");
+        refreshProjects();
+      } else {
+        const nextName = file.name.replace(/\.[^.]+$/, "");
+        setProjectName(nextName);
+        setSaveStatus("dirty");
+        await saveWorkspaceDraft<WorkspaceDraft>({
+          dataset: next,
+          schema: next.schema,
+          slides: nextSlides,
+          currentIndex: 0,
+          projectName: nextName,
+          page: "dataset",
+          regression: nextRegression,
+        });
+      }
       setPage("dataset");
       setNotice("Датасет загружен и проверен");
     } catch (e) {
@@ -228,7 +324,7 @@ function App() {
     } finally { setBusy(""); }
   };
 
-  const loadProject = async (projectId: string) => {
+  const loadProject = async (projectId: string, preferredPage?: Page) => {
     setBusy("Загружаю проект…");
     try {
       const saved = await api.loadProject(projectId);
@@ -237,6 +333,7 @@ function App() {
       const mergedSchema = ds.schema.map((col) => overrides[col.name] ? { ...col, ...overrides[col.name] } : col);
       setDataset(ds);
       setSchema(mergedSchema);
+      setRegression(saved.regression ?? regressionForDataset(ds));
       if (saved.slides && saved.slides.length > 0) {
         setSlides(saved.slides.map((s) => makeSlide({
           id: s.id || `s${Math.random().toString(36).slice(2)}`,
@@ -268,10 +365,12 @@ function App() {
       setCurrentProjectId(saved.project_id);
       setSaveStatus("saved");
       const hasAny = saved.slides?.some((s) => s.analysis) || !!saved.last_analysis;
-      setPage(hasAny ? "table" : "dataset");
+      setPage(preferredPage ?? (hasAny ? "table" : "dataset"));
       setNotice(`Проект «${saved.project_name}» загружен`);
+      return true;
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Не удалось загрузить проект");
+      return false;
     } finally { setBusy(""); }
   };
 
@@ -299,7 +398,7 @@ function App() {
   useEffect(() => {
     if (restoring) return;
     const target = page === "home" ? "/" :
-      currentProjectId ? `/project/${currentProjectId}/${page}` : "/";
+      currentProjectId ? `/project/${encodeURIComponent(currentProjectId)}/${page}` : "/";
     if (location.pathname !== target) navigate(target, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, currentProjectId, restoring]);
@@ -332,10 +431,11 @@ function App() {
       settings: s.settings,
       analysis: s.analysis,
     })),
+    regression,
     // backward compat fields
     last_analysis: slides[0]?.analysis ?? null,
     table_settings: slides[0]?.settings ?? {},
-  }), [dataset, schema, slides]);
+  }), [dataset, schema, slides, regression]);
 
   // silent auto-save to existing project
   const silentSave = useCallback(async (pid: string) => {
@@ -360,7 +460,21 @@ function App() {
     autoSaveTimer.current = setTimeout(() => silentSave(currentProjectId), 3000);
     return () => clearTimeout(autoSaveTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset, schema, slides, projectName]);
+  }, [dataset, schema, slides, regression, projectName]);
+
+  // Keep an unsaved imported workspace locally so a browser refresh cannot replace it.
+  useEffect(() => {
+    if (restoring) return;
+    clearTimeout(draftSaveTimer.current);
+    if (!dataset || currentProjectId) {
+      if (currentProjectId) clearWorkspaceDraft().catch(() => {});
+      return;
+    }
+    draftSaveTimer.current = setTimeout(() => {
+      saveWorkspaceDraft<WorkspaceDraft>({ dataset, schema, slides, currentIndex, projectName, page, regression }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(draftSaveTimer.current);
+  }, [dataset, schema, slides, currentIndex, projectName, page, regression, currentProjectId, restoring]);
 
   const deleteProject = async (projectId: string, projectNameLabel: string) => {
     if (!window.confirm(`Удалить проект «${projectNameLabel}»? Это действие нельзя отменить.`)) return;
@@ -440,12 +554,17 @@ function App() {
 
   const exportReport = async () => {
     const computed = slides.map((s, idx) => ({ s, idx })).filter(({ s }) => s.analysis !== null);
-    if (!computed.length) { setNotice("Нет рассчитанных таблиц для экспорта"); return; }
+    if (!computed.length && !regression.result) { setNotice("Нет рассчитанных результатов для экспорта"); return; }
     setBusy("Собираю отчёт…");
     try {
       const tables: ExportOptions[] = computed.map(({ s, idx }) => buildExportOptions(s, s.selected, idx + 1));
-      download(await api.exportReport(tables), "report.docx");
-      setNotice(`Отчёт сформирован (${computed.length} табл.)`);
+      const regressionExport = regression.result ? {
+        analysis: regression.result,
+        cutoff: regression.cutoff,
+        labels: Object.fromEntries(schema.map((v) => [v.name, v.label])),
+      } : undefined;
+      download(await api.exportReport(tables, regressionExport), "report.docx");
+      setNotice("Единый отчёт сформирован");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Ошибка экспорта отчёта");
     } finally { setBusy(""); }
@@ -464,7 +583,7 @@ function App() {
   return (
     <div className={`app-shell${page === "home" ? " home-mode" : ""}`}>
       <aside className="sidebar">
-        <div className="brand"><span className="brand-sign">M</span><div><strong>MedStat Studio</strong><small>Research workspace · MVP</small></div></div>
+        <div className="brand"><ArgusMark /><div><strong>Argus</strong><small>Видеть больше в данных</small></div></div>
         <nav aria-label="Модули анализа">
           {nav.map((item) => (
             <button
@@ -484,7 +603,7 @@ function App() {
       <main>
         <header className="topbar">
           <button className="topbar-home-btn" onClick={() => setPage("home")} title="На главную">
-            <span className="brand-sign" style={{width:24,height:24,borderRadius:6,fontSize:12}}>M</span>
+            <ArgusMark className="argus-mark--topbar" />
           </button>
           <div className="project-title">
             <input value={projectName} onChange={(e) => setProjectName(e.target.value)} aria-label="Название проекта" />
@@ -550,6 +669,12 @@ function App() {
               onDeleteSlide={deleteCurrentSlide}
             />
           )}
+          {page === "regression" && dataset && (
+            <RegressionPage dataset={dataset} schema={schema} workspace={regression} setWorkspace={setRegression} onOpenReport={() => setPage("report")} />
+          )}
+          {page === "report" && dataset && (
+            <ReportPreviewPage slides={slides} schema={schema} regression={regression} onExport={exportReport} />
+          )}
         </div>
       </main>
 
@@ -607,8 +732,8 @@ function HomePage({ savedProjects, onImport, onDemo, onLoadProject, onDeleteProj
       <header className="home-header">
         <div className="home-header-inner">
           <div className="home-brand">
-            <div className="brand-sign" style={{ width: 30, height: 30, borderRadius: 7, fontSize: 14 }}>M</div>
-            <strong>MedStat Studio</strong>
+            <ArgusMark className="argus-mark--header" />
+            <div><strong>Argus</strong><small>Видеть больше в данных</small></div>
           </div>
           <div className="home-nav-actions">
             {hasData && <button className="home-nav-btn" onClick={onContinue}>Продолжить работу →</button>}
@@ -622,7 +747,7 @@ function HomePage({ savedProjects, onImport, onDemo, onLoadProject, onDeleteProj
       <div className="home-hero">
         <div className="home-hero-inner">
           <div className="home-hero-content">
-            <div className="home-hero-eyebrow">Biomedical Statistics Workspace</div>
+            <div className="home-hero-eyebrow"><ArgusMark className="argus-mark--hero" /> ARGUS · MEDICAL STATISTICS</div>
             <h1>Воспроизводимая<br/>медицинская<br/>статистика</h1>
             <p>Автоматический выбор критерия, Table 1 по стандартам публикаций, экспорт DOCX — без написания кода.</p>
             <div className="home-hero-btns">
@@ -848,6 +973,7 @@ function TablePage({
   const [dragged, setDragged] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ name: string; edge: "before" | "after" } | null>(null);
   const [dragGhost, setDragGhost] = useState<{ name: string; x: number; y: number; width: number } | null>(null);
+  const [pickerOrder, setPickerOrder] = useState<string[]>(() => schema.map((v) => v.name));
   const draggedRef = useRef<string | null>(null);
   const dropHintRef = useRef<{ name: string; edge: "before" | "after" } | null>(null);
   const variableRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -855,8 +981,8 @@ function TablePage({
   const available = schema.filter((v) => v.role !== "id" && v.type !== "text" && v.name !== group);
   const availableNames = new Set(available.map((v) => v.name));
   const pickerVariables = [
-    ...selected.map((name) => available.find((v) => v.name === name)).filter((v): v is VariableSchema => Boolean(v)),
-    ...available.filter((v) => !selected.includes(v.name)),
+    ...pickerOrder.map((name) => available.find((v) => v.name === name)).filter((v): v is VariableSchema => Boolean(v)),
+    ...available.filter((v) => !pickerOrder.includes(v.name)),
   ];
   const visibleRows = selected
     .filter((name) => availableNames.has(name))
@@ -878,6 +1004,14 @@ function TablePage({
   const toggleVariable = (name: string) =>
     setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name]);
 
+  const movePickerVariable = (source: string, target: string, edge: "before" | "after") => {
+    const next = pickerVariables.map((v) => v.name).filter((name) => name !== source);
+    const targetIndex = next.indexOf(target);
+    if (targetIndex < 0) return;
+    next.splice(targetIndex + (edge === "after" ? 1 : 0), 0, source);
+    setPickerOrder(next);
+  };
+
   const moveVariable = (name: string, direction: -1 | 1) => {
     const index = selected.indexOf(name);
     const target = index + direction;
@@ -885,6 +1019,7 @@ function TablePage({
     const next = [...selected];
     [next[index], next[target]] = [next[target], next[index]];
     setSelected(next);
+    movePickerVariable(name, selected[target], direction < 0 ? "before" : "after");
   };
 
   const updateDropHint = (hint: { name: string; edge: "before" | "after" } | null) => {
@@ -898,6 +1033,7 @@ function TablePage({
     const next = selected.filter((name) => name !== source);
     next.splice(next.indexOf(target) + (edge === "after" ? 1 : 0), 0, source);
     setSelected(next);
+    movePickerVariable(source, target, edge);
   };
   const startPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, name: string) => {
     if (event.button !== 0 || !selected.includes(name)) return;
@@ -1053,6 +1189,261 @@ function TablePage({
         </div>,
         document.body,
       )}
+    </section>
+  );
+}
+
+function RegressionPage({ dataset, schema, workspace, setWorkspace, onOpenReport }: {
+  dataset: Dataset;
+  schema: VariableSchema[];
+  workspace: RegressionWorkspace;
+  setWorkspace: (value: RegressionWorkspace | ((current: RegressionWorkspace) => RegressionWorkspace)) => void;
+  onOpenReport: () => void;
+}) {
+  const eligibleOutcomes = schema.filter((v) => v.role !== "id" && (v.type === "numeric" || v.type === "binary"));
+  const { outcome, predictors, confidenceLevel, cutoff, result } = workspace;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const labels = Object.fromEntries(schema.map((v) => [v.name, v.label]));
+  const availablePredictors = schema.filter((v) => v.name !== outcome && v.role !== "id" && v.type !== "text");
+  const diagnosticMetrics = useMemo(() => {
+    const predictions = result?.diagnostics?.predictions;
+    if (!predictions?.length) return null;
+    let tp = 0, tn = 0, fp = 0, fn = 0;
+    for (const prediction of predictions) {
+      const positive = prediction.probability >= cutoff;
+      if (prediction.actual === 1 && positive) tp += 1;
+      else if (prediction.actual === 0 && !positive) tn += 1;
+      else if (prediction.actual === 0 && positive) fp += 1;
+      else fn += 1;
+    }
+    const ratio = (numerator: number, denominator: number) => denominator ? numerator / denominator : 0;
+    return {
+      tp, tn, fp, fn,
+      sensitivity: ratio(tp, tp + fn),
+      specificity: ratio(tn, tn + fp),
+      efficiency: ratio(tp + tn, predictions.length),
+      ppv: ratio(tp, tp + fp),
+      npv: ratio(tn, tn + fn),
+    };
+  }, [result, cutoff]);
+  const rocPath = result?.diagnostics?.roc_curve.map((point, index) =>
+    `${index ? "L" : "M"} ${40 + point.fpr * 300} ${190 - point.tpr * 160}`
+  ).join(" ") ?? "";
+
+  const changeOutcome = (name: string) => {
+    setWorkspace((current) => ({ ...current, outcome: name, predictors: current.predictors.filter((item) => item !== name) }));
+    setError("");
+  };
+  const togglePredictor = (name: string) => {
+    setWorkspace((current) => ({ ...current, predictors: current.predictors.includes(name) ? current.predictors.filter((item) => item !== name) : [...current.predictors, name] }));
+    setError("");
+  };
+  useEffect(() => {
+    if (!outcome || !predictors.length) {
+      setWorkspace((current) => ({ ...current, result: null }));
+      setError("");
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const timer = setTimeout(() => {
+      api.regression(
+        dataset.rows,
+        outcome,
+        predictors,
+        Object.fromEntries(schema.map((v) => [v.name, v])),
+        confidenceLevel,
+        controller.signal,
+      ).then((analysis) => setWorkspace((current) => ({ ...current, result: analysis }))).catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setWorkspace((current) => ({ ...current, result: null }));
+        const message = e instanceof Error ? e.message : "Не удалось рассчитать модель";
+        setError(message === "Not Found" ? "Сервер не обновлён. Перезапустите run_server.py." : message);
+      }).finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    }, 450);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [dataset.rows, outcome, predictors, confidenceLevel, schema]);
+  const number = (value: number, digits = 3) => {
+    if (!Number.isFinite(value)) return "—";
+    if (Math.abs(value) >= 1_000_000 || (value !== 0 && Math.abs(value) < 10 ** (-digits))) return value.toExponential(2).replace(".", ",");
+    return value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
+  const termLabel = (term: string) => {
+    if (term === "Константа") return term;
+    const [name, detail] = term.split(": ", 2);
+    return detail ? `${labels[name] || name}: ${detail}` : labels[name] || name;
+  };
+
+  return (
+    <section className="page regression-page">
+      <div className="page-heading">
+        <div><span className="eyebrow">04 · Моделирование</span><h1>Регрессия</h1><p>Оцените независимую связь факторов с бинарным или числовым исходом.</p></div>
+        <button className="button secondary" disabled={!result} onClick={onOpenReport}>Предпросмотр отчёта →</button>
+      </div>
+      <div className="regression-layout">
+        <aside className="panel regression-controls">
+          <div className="panel-head"><div><h2>Спецификация модели</h2><p>Тип модели определяется по исходу</p></div></div>
+          <div className="regression-control-body">
+            <label className="field"><span>Исход</span><select value={outcome} onChange={(e) => changeOutcome(e.target.value)}>
+              {eligibleOutcomes.map((v) => <option key={v.name} value={v.name}>{v.label} · {v.type === "binary" ? "бинарный" : "числовой"}</option>)}
+            </select></label>
+            <div className="regression-predictors">
+              <div className="picker-head"><span>Предикторы · {predictors.length}</span><button onClick={() => setWorkspace((current) => ({ ...current, predictors: predictors.length === availablePredictors.length ? [] : availablePredictors.map((v) => v.name) }))}>{predictors.length === availablePredictors.length ? "Снять все" : "Выбрать все"}</button></div>
+              {availablePredictors.map((v) => (
+                <label className={`regression-predictor ${predictors.includes(v.name) ? "selected" : ""}`} key={v.name}>
+                  <input type="checkbox" checked={predictors.includes(v.name)} onChange={() => togglePredictor(v.name)} />
+                  <span>{v.label}<small>{v.type} · пропуски {v.missing}</small></span>
+                </label>
+              ))}
+            </div>
+            <label className="field regression-confidence"><span>Доверительный интервал</span><select value={confidenceLevel} onChange={(e) => setWorkspace((current) => ({ ...current, confidenceLevel: Number(e.target.value) }))}><option value={0.90}>90%</option><option value={0.95}>95%</option><option value={0.99}>99%</option></select></label>
+            <div className={`regression-auto-status ${loading ? "is-loading" : ""} ${error ? "has-error" : ""}`}><span>{loading ? "⟳" : error ? "!" : predictors.length ? "✓" : "○"}</span>{loading ? "Модель пересчитывается…" : error ? "Расчёт не выполнен" : predictors.length ? "Результат актуален" : "Добавьте предиктор"}</div>
+            <small className="regression-note">Категориальные факторы кодируются индикаторами. Наблюдения с пропусками исключаются целиком.</small>
+          </div>
+        </aside>
+
+        <div className="regression-results">
+          {error && <div className="regression-error">{error}</div>}
+          {!result && !error && <div className="regression-empty"><span>∑</span><h2>{loading ? "Считаю модель…" : "Задайте модель"}</h2><p>{loading ? "Результат появится автоматически." : "Выберите исход и хотя бы один предиктор — расчёт запустится автоматически."}</p></div>}
+          {result && (
+            <>
+              {(result.warnings ?? []).map((warning) => <div className="regression-warning" key={warning}><strong>Осторожно: нестабильная выборка</strong><span>{warning}</span></div>)}
+              <div className="regression-summary">
+                <article><span>Модель</span><strong>{result.model_type === "logistic" ? "Логистическая" : "Линейная"}</strong><small>{result.fit_method === "firth" ? "коррекция Фирта" : result.event_level ? `событие: ${result.event_level}` : `исход: ${labels[result.outcome] || result.outcome}`}</small></article>
+                <article><span>Наблюдения</span><strong>{result.n}</strong><small>исключено: {result.excluded}</small></article>
+                {result.model_type === "linear" ? <>
+                  <article><span>R²</span><strong>{number(result.metrics.r_squared)}</strong><small>скорр. {number(result.metrics.adjusted_r_squared)}</small></article>
+                  <article><span>RMSE</span><strong>{number(result.metrics.rmse)}</strong><small>ошибка модели</small></article>
+                </> : <>
+                  <article><span>Псевдо-R²</span><strong>{number(result.metrics.pseudo_r_squared)}</strong><small>McFadden</small></article>
+                  <article><span>Точность</span><strong>{number(result.metrics.accuracy * 100, 1)}%</strong><small>AIC {number(result.metrics.aic, 1)}</small></article>
+                </>}
+              </div>
+              {result.diagnostics && diagnosticMetrics && (
+                <section className="regression-diagnostics">
+                  <div className="panel diagnostic-panel roc-panel">
+                    <div className="panel-head"><div><h2>ROC-кривая</h2><p>Дискриминационная способность модели</p></div><strong className="auc-value">AUC {number(result.diagnostics.auc)}</strong></div>
+                    <div className="roc-chart-wrap">
+                      <svg className="roc-chart" viewBox="0 0 370 225" role="img" aria-label={`ROC-кривая, AUC ${number(result.diagnostics.auc)}`}>
+                        <line className="roc-axis" x1="40" y1="190" x2="340" y2="190" />
+                        <line className="roc-axis" x1="40" y1="190" x2="40" y2="30" />
+                        <line className="roc-reference" x1="40" y1="190" x2="340" y2="30" />
+                        <path className="roc-line" d={rocPath} />
+                        <circle className="roc-cutoff-point" cx={40 + (1 - diagnosticMetrics.specificity) * 300} cy={190 - diagnosticMetrics.sensitivity * 160} r="5" />
+                        {[0, 0.5, 1].map((tick) => <g key={`x-${tick}`}><line className="roc-tick" x1={40 + tick * 300} y1="190" x2={40 + tick * 300} y2="195" /><text x={40 + tick * 300} y="208" textAnchor="middle">{tick.toLocaleString("ru-RU")}</text></g>)}
+                        {[0, 0.5, 1].map((tick) => <g key={`y-${tick}`}><line className="roc-tick" x1="35" y1={190 - tick * 160} x2="40" y2={190 - tick * 160} /><text x="30" y={194 - tick * 160} textAnchor="end">{tick.toLocaleString("ru-RU")}</text></g>)}
+                        <text className="roc-axis-label" x="190" y="222" textAnchor="middle">1 − специфичность</text>
+                        <text className="roc-axis-label" x="12" y="110" textAnchor="middle" transform="rotate(-90 12 110)">Чувствительность</text>
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="panel diagnostic-panel cutoff-panel">
+                    <div className="panel-head"><div><h2>Порог классификации</h2><p>Вероятность положительного прогноза</p></div><strong className="cutoff-value">{number(cutoff, 2)}</strong></div>
+                    <div className="cutoff-body">
+                      <input className="cutoff-slider" type="range" min="0.01" max="0.99" step="0.01" value={cutoff} onChange={(e) => setWorkspace((current) => ({ ...current, cutoff: Number(e.target.value) }))} aria-label="Probability cut-off" />
+                      <div className="cutoff-scale"><span>0,01</span><span>Probability cut-off</span><span>0,99</span></div>
+                      <div className="diagnostic-metrics">
+                        <article><span>Чувствительность</span><strong>{number(diagnosticMetrics.sensitivity * 100, 1)}%</strong></article>
+                        <article><span>Специфичность</span><strong>{number(diagnosticMetrics.specificity * 100, 1)}%</strong></article>
+                        <article><span>Диагн. эффективность</span><strong>{number(diagnosticMetrics.efficiency * 100, 1)}%</strong></article>
+                        <article><span>PPV / NPV</span><strong>{number(diagnosticMetrics.ppv * 100, 1)}% / {number(diagnosticMetrics.npv * 100, 1)}%</strong></article>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="panel diagnostic-panel confusion-panel">
+                    <div className="panel-head"><div><h2>Матрица ошибок</h2><p>При cut-off {number(cutoff, 2)}</p></div></div>
+                    <div className="confusion-matrix" aria-label="Матрица ошибок">
+                      <div className="cm-corner">Факт ↓ / Прогноз →</div><div className="cm-head">Положительный</div><div className="cm-head">Отрицательный</div>
+                      <div className="cm-head cm-row">Положительный</div><div className="cm-cell cm-correct"><strong>{diagnosticMetrics.tp}</strong><small>TP</small></div><div className="cm-cell cm-error"><strong>{diagnosticMetrics.fn}</strong><small>FN</small></div>
+                      <div className="cm-head cm-row">Отрицательный</div><div className="cm-cell cm-error"><strong>{diagnosticMetrics.fp}</strong><small>FP</small></div><div className="cm-cell cm-correct"><strong>{diagnosticMetrics.tn}</strong><small>TN</small></div>
+                    </div>
+                  </div>
+                </section>
+              )}
+              <div className="panel regression-table-panel">
+                <div className="panel-head"><div><h2>Коэффициенты модели</h2><p>{result.model_type === "logistic" ? "OR — отношение шансов" : "β — изменение исхода при увеличении предиктора на единицу"}</p></div></div>
+                <div className="table-scroll"><table className="regression-table"><thead><tr><th>Параметр</th><th>{result.model_type === "logistic" ? "β (log-odds)" : "β"}</th><th>SE</th><th>{result.model_type === "logistic" ? "OR" : "Эффект"}</th><th>{Math.round(result.confidence_level * 100)}% ДИ</th><th>p-value</th></tr></thead><tbody>
+                  {result.coefficients.map((row) => <tr key={row.term}><td>{termLabel(row.term)}</td><td>{number(row.estimate)}</td><td>{number(row.standard_error)}</td><td>{number(row.effect)}</td><td>{number(row.effect_ci_lower)} — {number(row.effect_ci_upper)}</td><td className={row.p_value < 0.05 ? "significant" : ""}>{row.p_display}</td></tr>)}
+                </tbody></table></div>
+                {(result.references.length > 0 || result.excluded > 0) && <div className="panel-footer"><span>{result.references.length ? `Референсные уровни: ${result.references.join("; ")}. ` : ""}{result.excluded ? `Исключено из-за пропусков: ${result.excluded}.` : ""}</span></div>}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReportPreviewPage({ slides, schema, regression, onExport }: {
+  slides: TableSlide[];
+  schema: VariableSchema[];
+  regression: RegressionWorkspace;
+  onExport: () => void;
+}) {
+  const labels = Object.fromEntries(schema.map((v) => [v.name, v.label]));
+  const tables = slides.filter((slide) => slide.analysis);
+  const model = regression.result;
+  const number = (value: number, digits = 3) => {
+    if (!Number.isFinite(value)) return "—";
+    if (Math.abs(value) >= 1_000_000 || (value !== 0 && Math.abs(value) < 10 ** (-digits))) return value.toExponential(2).replace(".", ",");
+    return value.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
+  const diagnostics = useMemo(() => {
+    const predictions = model?.diagnostics?.predictions;
+    if (!predictions?.length) return null;
+    let tp = 0, tn = 0, fp = 0, fn = 0;
+    for (const item of predictions) {
+      const positive = item.probability >= regression.cutoff;
+      if (item.actual === 1 && positive) tp++; else if (item.actual === 0 && !positive) tn++; else if (positive) fp++; else fn++;
+    }
+    const ratio = (a: number, b: number) => b ? a / b : 0;
+    return { tp, tn, fp, fn, sensitivity: ratio(tp, tp + fn), specificity: ratio(tn, tn + fp), efficiency: ratio(tp + tn, predictions.length) };
+  }, [model, regression.cutoff]);
+  const rocPath = model?.diagnostics?.roc_curve.map((point, index) => `${index ? "L" : "M"} ${35 + point.fpr * 250} ${165 - point.tpr * 135}`).join(" ") ?? "";
+
+  return (
+    <section className="page report-preview-page">
+      <div className="page-heading">
+        <div><span className="eyebrow">05 · Итоговый документ</span><h1>Предпросмотр отчёта</h1><p>Все рассчитанные разделы проекта в порядке экспорта.</p></div>
+        <button className="button primary" disabled={!tables.length && !model} onClick={onExport}>Экспортировать DOCX</button>
+      </div>
+      {!tables.length && !model && <div className="regression-empty"><span>▤</span><h2>Отчёт пока пуст</h2><p>Рассчитайте описательную таблицу или регрессионную модель — результат появится здесь автоматически.</p></div>}
+      <div className="report-pages">
+        {tables.map((slide, tableIndex) => {
+          const analysis = slide.analysis!;
+          return <article className="report-paper" key={slide.id}>
+            <div className="report-section-label">Раздел {tableIndex + 1} · Описательная статистика</div>
+            <h2>{slide.settings.title}</h2>
+            {slide.settings.description && <p className="report-description">{slide.settings.description}</p>}
+            <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Показатель</th>{slide.settings.showOverall && <th>Все (n={analysis.n})</th>}{analysis.groups.map((group) => <th key={group.name}>{group.name}<small>n={group.n}</small></th>)}<th>p-value</th></tr></thead><tbody>
+              {analysis.rows.map((row) => <Fragment key={row.variable}><tr><td>{labels[row.variable] || row.variable}<small>{row.presentation}</small></td>{slide.settings.showOverall && <td>{row.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{row.groups[group.name]}</td>)}<td>{row.p_display}</td></tr>{row.levels.map((level) => <tr className="category-level" key={`${row.variable}-${level.level}`}><td>↳ {level.level}</td>{slide.settings.showOverall && <td>{level.overall}</td>}{analysis.groups.map((group) => <td key={group.name}>{level.groups[group.name]}</td>)}<td /></tr>)}</Fragment>)}
+            </tbody></table></div>
+            <p className="report-method-note">{analysis.note}</p>
+          </article>;
+        })}
+        {model && <article className="report-paper">
+          <div className="report-section-label">Раздел {tables.length + 1} · Регрессионный анализ</div>
+          <h2>{model.model_type === "logistic" ? "Бинарная логистическая регрессия" : "Линейная регрессия"}</h2>
+          <p className="report-description">Исход: {labels[model.outcome] || model.outcome}. Включено наблюдений: {model.n}; исключено: {model.excluded}.</p>
+          {(model.warnings ?? []).map((warning) => <div className="report-warning" key={warning}><strong>Метод: логистическая регрессия Фирта.</strong> {warning}</div>)}
+          <div className="table-scroll"><table className="report-preview-table"><thead><tr><th>Параметр</th><th>β</th><th>SE</th><th>{model.model_type === "logistic" ? "OR" : "Эффект"}</th><th>{Math.round(model.confidence_level * 100)}% ДИ</th><th>p-value</th></tr></thead><tbody>
+            {model.coefficients.map((row) => <tr key={row.term}><td>{row.term}</td><td>{number(row.estimate)}</td><td>{number(row.standard_error)}</td><td>{number(row.effect)}</td><td>{number(row.effect_ci_lower)}–{number(row.effect_ci_upper)}</td><td>{row.p_display}</td></tr>)}
+          </tbody></table></div>
+          {model.diagnostics && diagnostics && <div className="report-diagnostic-preview">
+            <div><h3>ROC-кривая</h3><svg viewBox="0 0 315 190" role="img" aria-label={`ROC AUC ${number(model.diagnostics.auc)}`}><line className="roc-axis" x1="35" y1="165" x2="285" y2="165"/><line className="roc-axis" x1="35" y1="165" x2="35" y2="30"/><line className="roc-reference" x1="35" y1="165" x2="285" y2="30"/><path className="roc-line" d={rocPath}/></svg><strong>AUC {number(model.diagnostics.auc)}</strong></div>
+            <div><h3>Диагностика при cut-off {number(regression.cutoff, 2)}</h3><div className="report-metrics"><span>Чувствительность <strong>{number(diagnostics.sensitivity * 100, 1)}%</strong></span><span>Специфичность <strong>{number(diagnostics.specificity * 100, 1)}%</strong></span><span>Эффективность <strong>{number(diagnostics.efficiency * 100, 1)}%</strong></span></div><div className="report-confusion"><span>TP <strong>{diagnostics.tp}</strong></span><span>FN <strong>{diagnostics.fn}</strong></span><span>FP <strong>{diagnostics.fp}</strong></span><span>TN <strong>{diagnostics.tn}</strong></span></div></div>
+          </div>}
+        </article>}
+      </div>
     </section>
   );
 }

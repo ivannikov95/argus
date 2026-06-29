@@ -1,4 +1,4 @@
-import type { Dataset, TableOneAnalysis } from "./types";
+import type { Dataset, RegressionAnalysis, TableOneAnalysis } from "./types";
 
 export interface ProjectMeta {
   project_id: string;
@@ -19,6 +19,13 @@ export interface SavedProject extends ProjectMeta {
   }>;
   last_analysis: TableOneAnalysis | null;  // backward compat
   table_settings: Record<string, unknown>;  // backward compat
+  regression?: {
+    outcome: string;
+    predictors: string[];
+    confidenceLevel: number;
+    cutoff: number;
+    result: RegressionAnalysis | null;
+  };
 }
 
 export interface ExportOptions {
@@ -93,6 +100,27 @@ export const api = {
       }),
     }).then(parse<TableOneAnalysis>),
 
+  regression: (
+    rows: Record<string, unknown>[],
+    outcome: string,
+    predictors: string[],
+    variableOverrides: Record<string, unknown> = {},
+    confidenceLevel = 0.95,
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/analyze/regression", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+        rows,
+        outcome,
+        predictors,
+        variable_overrides: variableOverrides,
+        confidence_level: confidenceLevel,
+      }),
+    }).then(parse<RegressionAnalysis>),
+
   saveProject: (payload: Record<string, unknown>) =>
     fetch("/api/project/save", {
       method: "POST",
@@ -110,7 +138,7 @@ export const api = {
     }).then(parse<SavedProject>),
 
   deleteProject: (projectId: string) =>
-    fetch(`/api/project/${projectId}`, { method: "DELETE" }).then(parse<{ status: string }>),
+    fetch(`/api/project/${encodeURIComponent(projectId)}`, { method: "DELETE" }).then(parse<{ status: string }>),
 
   exportDocx: async (options: ExportOptions) => {
     const response = await fetch("/api/export/table-one.docx", {
@@ -122,11 +150,11 @@ export const api = {
     return response.blob();
   },
 
-  exportReport: async (tables: ExportOptions[]) => {
+  exportReport: async (tables: ExportOptions[], regression?: { analysis: RegressionAnalysis; cutoff: number; labels: Record<string, string> }) => {
     const response = await fetch("/api/export/report.docx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tables: tables.map(buildExportBody) }),
+      body: JSON.stringify({ tables: tables.map(buildExportBody), regression }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: `Ошибка сервера ${response.status}` }));

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Argus">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#123c80"/>
+      <stop offset=".55" stop-color="#071d47"/>
+      <stop offset="1" stop-color="#00102f"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="27" fill="url(#bg)"/>
+  <ellipse cx="66" cy="64" rx="48" ry="27" transform="rotate(-35 66 64)" fill="none" stroke="#8eadd8" stroke-width="2"/>
+  <circle cx="25" cy="94" r="4" fill="#70a4e8"/>
+  <circle cx="106" cy="34" r="4" fill="#4d8ee5"/>
+  <path d="M23 66C39 46 68 41 94 52C68 47 46 52 31 66C37 72 44 77 53 81C41 78 31 73 23 66Z" fill="#fff"/>
+  <path d="M38 83L93 56" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <g fill="#fff">
+    <circle cx="50" cy="69" r="2.6"/><circle cx="59" cy="63" r="2.8"/><circle cx="69" cy="57" r="2.5"/>
+    <circle cx="71" cy="72" r="2.8"/><circle cx="80" cy="66" r="2.5"/>
+  </g>
+</svg>
