@@ -103,6 +103,8 @@ function App() {
   const [savedProjects, setSavedProjects] = useState<ProjectMeta[]>([]);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  // true if we need to restore a session — set synchronously so first render skips home page
+  const [restoring, setRestoring] = useState(() => !!localStorage.getItem("lastProjectId"));
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -175,7 +177,11 @@ function App() {
   useEffect(() => {
     refreshProjects();
     const pid = localStorage.getItem("lastProjectId");
-    if (pid) loadProject(pid).catch(() => localStorage.removeItem("lastProjectId"));
+    if (pid) {
+      loadProject(pid)
+        .catch(() => localStorage.removeItem("lastProjectId"))
+        .finally(() => setRestoring(false));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -434,6 +440,13 @@ function App() {
 
   const updateVariable = (name: string, patch: Partial<VariableSchema>) =>
     setSchema((cur) => cur.map((item) => item.name === name ? { ...item, ...patch } : item));
+
+  if (restoring) return (
+    <div className="restore-screen">
+      <div className="restore-spinner" />
+      <p>Загрузка…</p>
+    </div>
+  );
 
   return (
     <div className={`app-shell${page === "home" ? " home-mode" : ""}`}>
