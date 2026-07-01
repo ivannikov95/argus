@@ -198,7 +198,8 @@ export interface ModelingSplitMetrics {
   npv: number;
   efficiency: number;
   tp: number; tn: number; fp: number; fn: number;
-  roc_curve: { fpr: number; tpr: number }[];
+  roc_curve: { fpr: number; tpr: number; threshold?: number }[];
+  youden_cutoff: number;
 }
 
 export interface ModelingCoefficient {
@@ -225,6 +226,7 @@ export interface ModelingResult {
   cv_folds: number;
   coefficients: ModelingCoefficient[];
   warnings: string[];
+  youden_cutoff: number;
 }
 
 export interface ModelingWorkspace {

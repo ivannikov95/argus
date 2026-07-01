@@ -840,7 +840,15 @@ def _split_metrics(y_true, y_prob, cutoff: float, confidence_level: float) -> di
     n = len(y_true)
     auc = float(roc_auc_score(y_true, y_prob)) if len(set(y_true)) > 1 else 0.5
     fpr_arr, tpr_arr, thr_arr = sk_roc(y_true, y_prob)
-    roc_points = [{"fpr": float(f), "tpr": float(t)} for f, t in zip(fpr_arr, tpr_arr)]
+    # Clamp thresholds to [0,1] (sklearn prepends max+eps as sentinel)
+    roc_points = [
+        {"fpr": float(f), "tpr": float(t), "threshold": float(min(max(th, 0.0), 1.0))}
+        for f, t, th in zip(fpr_arr, tpr_arr, thr_arr)
+    ]
+    # Youden's J = sensitivity + specificity - 1 (maximise)
+    youden_j = tpr_arr + (1.0 - fpr_arr) - 1.0
+    best_j = int(np.argmax(youden_j))
+    youden_cutoff = float(min(max(thr_arr[best_j], 0.0), 1.0))
 
     y_pred = (y_prob >= cutoff).astype(int)
     tp = int(((y_true == 1) & (y_pred == 1)).sum())
@@ -880,6 +888,7 @@ def _split_metrics(y_true, y_prob, cutoff: float, confidence_level: float) -> di
         "efficiency": efficiency,
         "tp": tp, "tn": tn, "fp": fp, "fn": fn,
         "roc_curve": roc_points,
+        "youden_cutoff": youden_cutoff,
     }
 
 
@@ -1046,6 +1055,7 @@ def analyze_modeling(request: ModelingRequest) -> dict[str, Any]:
         "cv_folds": request.cv_folds,
         "coefficients": coefficients,
         "warnings": warnings,
+        "youden_cutoff": test_metrics.get("youden_cutoff", 0.5),
     }
 
 

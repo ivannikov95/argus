@@ -49,36 +49,168 @@ function StepBar({ current, onGo }: { current: number; onGo: (s: 1 | 2 | 3) => v
 }
 
 // ── ROC chart ────────────────────────────────────────────────────────────────
-function RocChart({ splits }: { splits: { label: string; color: string; data: ModelingSplitMetrics }[] }) {
-  const W = 280, H = 220, PAD = { l: 44, r: 12, t: 12, b: 36 };
+function RocChart({ splits, localCutoff, youdenCutoff }: {
+  splits: { label: string; color: string; data: ModelingSplitMetrics }[];
+  localCutoff: number;
+  youdenCutoff?: number;
+}) {
+  const W = 400, H = 320, PAD = { l: 46, r: 16, t: 14, b: 38 };
   const px = (v: number) => PAD.l + v * (W - PAD.l - PAD.r);
   const py = (v: number) => H - PAD.b - v * (H - PAD.t - PAD.b);
 
+  // Find test split for cutoff markers
+  const testSplit = splits.find((s) => s.label === "Тест");
+  const findPtAtCutoff = (cutoff: number) => {
+    if (!testSplit) return null;
+    const pts = testSplit.data.roc_curve.filter((p) => p.threshold !== undefined);
+    if (!pts.length) return null;
+    let best = pts[0], bestDist = Math.abs((best.threshold ?? 0) - cutoff);
+    for (const p of pts) {
+      const d = Math.abs((p.threshold ?? 0) - cutoff);
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return { x: px(best.fpr), y: py(best.tpr) };
+  };
+
+  const currentDot = findPtAtCutoff(localCutoff);
+  const youdenDot = youdenCutoff !== undefined ? findPtAtCutoff(youdenCutoff) : null;
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="ml-roc-svg">
+      {/* grid */}
+      {[0, 0.25, 0.5, 0.75, 1].map((v) => (
+        <line key={v} x1={PAD.l} y1={py(v)} x2={W - PAD.r} y2={py(v)} stroke="#f3f4f6" strokeWidth="1" />
+      ))}
       <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={H - PAD.b} stroke="#e5e7eb" strokeWidth="1" />
       <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={H - PAD.b} stroke="#e5e7eb" strokeWidth="1" />
-      <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={PAD.t} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4 3" />
+      <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={PAD.t} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="5 4" />
       {[0, 0.5, 1].map((v) => (
         <g key={v}>
-          <text x={PAD.l - 4} y={py(v) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{v.toFixed(1)}</text>
-          <text x={px(v)} y={H - PAD.b + 12} textAnchor="middle" fontSize="9" fill="#9ca3af">{v.toFixed(1)}</text>
+          <text x={PAD.l - 5} y={py(v) + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{v.toFixed(1)}</text>
+          <text x={px(v)} y={H - PAD.b + 13} textAnchor="middle" fontSize="10" fill="#9ca3af">{v.toFixed(1)}</text>
         </g>
       ))}
-      <text x={PAD.l - 24} y={H / 2} textAnchor="middle" fontSize="9" fill="#6b7280" transform={`rotate(-90 ${PAD.l - 24} ${H / 2})`}>Чувствительность</text>
-      <text x={W / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#6b7280">1 − Специфичность</text>
+      <text x={PAD.l - 26} y={H / 2} textAnchor="middle" fontSize="10" fill="#6b7280" transform={`rotate(-90 ${PAD.l - 26} ${H / 2})`}>Чувствительность</text>
+      <text x={(PAD.l + W - PAD.r) / 2} y={H - 5} textAnchor="middle" fontSize="10" fill="#6b7280">1 − Специфичность</text>
+      {/* curves */}
       {splits.map(({ label, color, data }) => {
         const pts = data.roc_curve.map((p, i) => `${i ? "L" : "M"}${px(p.fpr).toFixed(1)},${py(p.tpr).toFixed(1)}`).join(" ");
         return <path key={label} d={pts} fill="none" stroke={color} strokeWidth="2" />;
       })}
+      {/* Youden dot (green) */}
+      {youdenDot && (
+        <circle cx={youdenDot.x} cy={youdenDot.y} r={6} fill="#059669" stroke="#fff" strokeWidth="1.5" />
+      )}
+      {/* Current cutoff dot (orange) */}
+      {currentDot && (
+        <circle cx={currentDot.x} cy={currentDot.y} r={5} fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+      )}
       {/* legend */}
       {splits.map(({ label, color, data }, i) => (
-        <g key={label} transform={`translate(${PAD.l + 4},${PAD.t + 4 + i * 16})`}>
-          <line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth="2" />
-          <text x="17" y="9" fontSize="9" fill="#374151">{label} AUC {fmt2(data.auc)}</text>
+        <g key={label} transform={`translate(${PAD.l + 6},${PAD.t + 6 + i * 18})`}>
+          <line x1="0" y1="6" x2="16" y2="6" stroke={color} strokeWidth="2" />
+          <text x="20" y="10" fontSize="10" fill="#374151">{label} · AUC {fmt2(data.auc)} ({fmt2(data.auc_ci_lower)}–{fmt2(data.auc_ci_upper)})</text>
         </g>
       ))}
+      {/* dot legend */}
+      {currentDot && (
+        <g transform={`translate(${PAD.l + 6},${PAD.t + 6 + splits.length * 18})`}>
+          <circle cx="6" cy="6" r="5" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+          <text x="16" y="10" fontSize="10" fill="#374151">Текущий порог ({localCutoff.toFixed(2)})</text>
+        </g>
+      )}
+      {youdenDot && (
+        <g transform={`translate(${PAD.l + 6},${PAD.t + 6 + splits.length * 18 + 18})`}>
+          <circle cx="6" cy="6" r="6" fill="#059669" stroke="#fff" strokeWidth="1.5" />
+          <text x="16" y="10" fontSize="10" fill="#374151">Оптимум Youden ({youdenCutoff!.toFixed(2)})</text>
+        </g>
+      )}
     </svg>
+  );
+}
+
+// ── Sensitivity / Specificity vs Cutoff chart ─────────────────────────────────
+function CutoffChart({ testMetrics, localCutoff, youdenCutoff, onApplyYouden }: {
+  testMetrics: ModelingSplitMetrics;
+  localCutoff: number;
+  youdenCutoff: number;
+  onApplyYouden: () => void;
+}) {
+  const W = 400, H = 170, PAD = { l: 36, r: 14, t: 10, b: 30 };
+  const px = (v: number) => PAD.l + Math.min(Math.max(v, 0), 1) * (W - PAD.l - PAD.r);
+  const py = (v: number) => H - PAD.b - v * (H - PAD.t - PAD.b);
+
+  // Sort points by threshold ascending for plotting vs cutoff
+  const pts = [...testMetrics.roc_curve]
+    .filter((p) => p.threshold !== undefined)
+    .sort((a, b) => (a.threshold ?? 0) - (b.threshold ?? 0));
+
+  if (pts.length < 2) return null;
+
+  const sensPath = pts.map((p, i) => `${i ? "L" : "M"}${px(p.threshold!).toFixed(1)},${py(p.tpr).toFixed(1)}`).join(" ");
+  const specPath = pts.map((p, i) => `${i ? "L" : "M"}${px(p.threshold!).toFixed(1)},${py(1 - p.fpr).toFixed(1)}`).join(" ");
+  // Youden's J
+  const joudenPath = pts.map((p, i) => `${i ? "L" : "M"}${px(p.threshold!).toFixed(1)},${py(Math.max(p.tpr + (1 - p.fpr) - 1, 0)).toFixed(1)}`).join(" ");
+
+  // Current sens/spec at localCutoff (nearest point)
+  let nearestPt = pts[0];
+  let nearestDist = Infinity;
+  for (const p of pts) {
+    const d = Math.abs((p.threshold ?? 0) - localCutoff);
+    if (d < nearestDist) { nearestDist = d; nearestPt = p; }
+  }
+  const curSens = nearestPt.tpr;
+  const curSpec = 1 - nearestPt.fpr;
+
+  return (
+    <div className="ml-cutoff-chart">
+      <div className="ml-card-title" style={{ marginBottom: 6 }}>Чувствительность и специфичность vs порог (тестовая выборка)</div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="ml-cutoff-svg">
+        {/* grid */}
+        {[0, 0.25, 0.5, 0.75, 1].map((v) => (
+          <g key={v}>
+            <line x1={PAD.l} y1={py(v)} x2={W - PAD.r} y2={py(v)} stroke="#f3f4f6" strokeWidth="1" />
+            <text x={PAD.l - 5} y={py(v) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{v.toFixed(2)}</text>
+            <text x={px(v)} y={H - PAD.b + 12} textAnchor="middle" fontSize="9" fill="#9ca3af">{v.toFixed(2)}</text>
+          </g>
+        ))}
+        <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={H - PAD.b} stroke="#e5e7eb" strokeWidth="1" />
+        <line x1={PAD.l} y1={H - PAD.b} x2={W - PAD.r} y2={H - PAD.b} stroke="#e5e7eb" strokeWidth="1" />
+        <text x={(PAD.l + W - PAD.r) / 2} y={H - 3} textAnchor="middle" fontSize="9" fill="#6b7280">Порог</text>
+        {/* curves */}
+        <path d={sensPath} fill="none" stroke="#6366f1" strokeWidth="2" />
+        <path d={specPath} fill="none" stroke="#374151" strokeWidth="2" />
+        <path d={joudenPath} fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeDasharray="4 3" />
+        {/* Youden vertical */}
+        <line x1={px(youdenCutoff)} y1={PAD.t} x2={px(youdenCutoff)} y2={H - PAD.b} stroke="#059669" strokeWidth="1.5" strokeDasharray="3 2" />
+        {/* Current cutoff vertical */}
+        <line x1={px(localCutoff)} y1={PAD.t} x2={px(localCutoff)} y2={H - PAD.b} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4 2" />
+        {/* dots at current cutoff */}
+        <circle cx={px(localCutoff)} cy={py(curSens)} r="4" fill="#6366f1" stroke="#fff" strokeWidth="1.5" />
+        <circle cx={px(localCutoff)} cy={py(curSpec)} r="4" fill="#374151" stroke="#fff" strokeWidth="1.5" />
+        {/* legend */}
+        <g transform={`translate(${W - PAD.r - 130},${PAD.t + 4})`}>
+          <line x1="0" y1="5" x2="12" y2="5" stroke="#6366f1" strokeWidth="2" />
+          <text x="15" y="9" fontSize="9" fill="#374151">Чувствительность</text>
+          <line x1="0" y1="19" x2="12" y2="19" stroke="#374151" strokeWidth="2" />
+          <text x="15" y="23" fontSize="9" fill="#374151">Специфичность</text>
+          <line x1="0" y1="33" x2="12" y2="33" stroke="#9ca3af" strokeWidth="1.5" strokeDasharray="4 3" />
+          <text x="15" y="37" fontSize="9" fill="#9ca3af">Youden's J</text>
+        </g>
+      </svg>
+      <div className="ml-cutoff-info-row">
+        <div className="ml-cutoff-current">
+          <span className="ml-cutoff-label">Текущий порог {localCutoff.toFixed(2)}:</span>
+          <span className="ml-cutoff-val ml-cutoff-sens">Чувств. {pct(curSens)}</span>
+          <span className="ml-cutoff-val ml-cutoff-spec">Специф. {pct(curSpec)}</span>
+        </div>
+        <div className="ml-cutoff-youden">
+          <span className="ml-cutoff-label">Оптимум Youden's J:</span>
+          <strong className="ml-cutoff-val">{youdenCutoff.toFixed(2)}</strong>
+          <button className="ml-link-btn" onClick={onApplyYouden}>← Применить</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -504,7 +636,13 @@ export function ModelingPage({ dataset, schema, workspace, setWorkspace }: Model
                       <div className="ml-results-grid">
                         <div className="ml-card ml-card-roc">
                           <div className="ml-card-title">ROC-кривые</div>
-                          <RocChart splits={rocSplits} />
+                          <RocChart splits={rocSplits} localCutoff={localCutoff} youdenCutoff={r.youden_cutoff} />
+                          <CutoffChart
+                            testMetrics={r.test}
+                            localCutoff={localCutoff}
+                            youdenCutoff={r.youden_cutoff}
+                            onApplyYouden={() => setLocalCutoff(r.youden_cutoff)}
+                          />
                         </div>
 
                         <div className="ml-card ml-card-metrics">
