@@ -26,6 +26,7 @@ interface WorkspaceDraft {
   page: Page;
   regression?: RegressionWorkspace;
   correlation?: CorrelationWorkspace;
+  modeling?: ModelingWorkspace;
 }
 
 function ArgusMark({ className = "" }: { className?: string }) {
@@ -60,7 +61,7 @@ function App() {
 
   // Read URL once synchronously to set correct initial state — no home-page flash
   const [page, setPage] = useState<Page>(() => {
-    const m = window.location.pathname.match(/\/(dataset|variables|table|regression|correlation|report)$/);
+    const m = window.location.pathname.match(/\/(dataset|variables|table|regression|correlation|modeling|report)$/);
     return (m?.[1] as Page) ?? "home";
   });
   const [dataset, setDataset] = useState<Dataset | null>(null);
@@ -171,6 +172,8 @@ function App() {
           setCurrentIndex(Math.min(draft.currentIndex ?? 0, Math.max(draft.slides.length - 1, 0)));
           setProjectName(draft.projectName || "Новое исследование");
           setRegression(draft.regression ?? regressionForDataset(draft.dataset));
+          if (draft.correlation) setCorrelation(draft.correlation);
+          if (draft.modeling) setModeling(draft.modeling);
           setPage(draft.page === "home" ? "home" : draft.page || "dataset");
         } else if (/^\/project\//.test(window.location.pathname)) {
           setPage("home");
@@ -278,6 +281,8 @@ function App() {
           analysis: (saved.last_analysis as import("./types").TableOneAnalysis) ?? null,
         })]);
       }
+      if (saved.modeling) setModeling(saved.modeling as unknown as ModelingWorkspace);
+      if (saved.correlation) setCorrelation(saved.correlation as unknown as CorrelationWorkspace);
       setCurrentIndex(0);
       setProjectName(saved.project_name);
       skipNextAutoSave.current = true;
@@ -351,10 +356,12 @@ function App() {
       analysis: s.analysis,
     })),
     regression,
+    modeling,
+    correlation,
     // backward compat fields
     last_analysis: slides[0]?.analysis ?? null,
     table_settings: slides[0]?.settings ?? {},
-  }), [dataset, schema, slides, regression]);
+  }), [dataset, schema, slides, regression, modeling, correlation]);
 
   // silent auto-save to existing project
   const silentSave = useCallback(async (pid: string) => {
@@ -379,7 +386,7 @@ function App() {
     autoSaveTimer.current = setTimeout(() => silentSave(currentProjectId), 3000);
     return () => clearTimeout(autoSaveTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset, schema, slides, regression, projectName]);
+  }, [dataset, schema, slides, regression, modeling, correlation, projectName]);
 
   // Keep an unsaved imported workspace locally so a browser refresh cannot replace it.
   useEffect(() => {
@@ -390,10 +397,10 @@ function App() {
       return;
     }
     draftSaveTimer.current = setTimeout(() => {
-      saveWorkspaceDraft<WorkspaceDraft>({ dataset, schema, slides, currentIndex, projectName, page, regression }).catch(() => {});
+      saveWorkspaceDraft<WorkspaceDraft>({ dataset, schema, slides, currentIndex, projectName, page, regression, correlation, modeling }).catch(() => {});
     }, 500);
     return () => clearTimeout(draftSaveTimer.current);
-  }, [dataset, schema, slides, currentIndex, projectName, page, regression, currentProjectId, restoring]);
+  }, [dataset, schema, slides, currentIndex, projectName, page, regression, correlation, modeling, currentProjectId, restoring]);
 
   const deleteProject = async (projectId: string, projectNameLabel: string) => {
     if (!window.confirm(`Удалить проект «${projectNameLabel}»? Это действие нельзя отменить.`)) return;

@@ -59,6 +59,8 @@ class ProjectSaveRequest(BaseModel):
     variable_overrides: dict[str, dict[str, Any]] = {}
     slides: list[dict[str, Any]] = []          # all table slides
     regression: dict[str, Any] | None = None
+    modeling: dict[str, Any] | None = None
+    correlation: dict[str, Any] | None = None
     last_analysis: dict[str, Any] | None = None  # backward compat
     table_settings: dict[str, Any] = {}          # backward compat
 

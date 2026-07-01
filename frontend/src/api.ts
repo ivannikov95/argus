@@ -26,6 +26,8 @@ export interface SavedProject extends ProjectMeta {
     cutoff: number;
     result: RegressionAnalysis | null;
   };
+  modeling?: Record<string, unknown>;
+  correlation?: Record<string, unknown>;
 }
 
 export interface ExportOptions {
