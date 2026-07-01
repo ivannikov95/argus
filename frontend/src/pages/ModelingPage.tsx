@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "../api";
 import type { Dataset, VariableSchema, ModelingWorkspace, ModelingResult, ModelingSplitMetrics, CorrelationAnalysis } from "../types";
+import { corrColor } from "../utils";
+import { ScatterTooltip } from "../components/ScatterTooltip";
+import { CorrelationModal } from "../components/CorrelationModal";
 
 export interface ModelingPageProps {
   dataset: Dataset;
@@ -277,6 +280,150 @@ function MetricsTable({ result, cutoff }: { result: ModelingResult; cutoff: numb
   );
 }
 
+// ── Step 2: correlation matrix ────────────────────────────────────────────────
+interface HoveredCell { row: string; col: string; rectRight: number; rectTop: number; }
+
+interface Step2MatrixProps {
+  result: CorrelationAnalysis;
+  threshold: number;
+  excludedByCorr: string[];
+  labels: Record<string, string>;
+  dataset: Dataset;
+  schema: VariableSchema[];
+  onExclude: (name: string) => void;
+  onRestore: (name: string) => void;
+  onRestoreAll: () => void;
+}
+
+function Step2Matrix({ result, threshold, excludedByCorr, labels, dataset, schema, onExclude, onRestore, onRestoreAll }: Step2MatrixProps) {
+  const [hovered, setHovered] = useState<HoveredCell | null>(null);
+  const [modalCell, setModalCell] = useState<{ row: string; col: string } | null>(null);
+
+  const vars = result.variables;
+  const matrix = result.matrix;
+
+  const highPairs: { a: string; b: string; r: number }[] = [];
+  for (let i = 0; i < vars.length; i++)
+    for (let j = i + 1; j < vars.length; j++) {
+      const r = matrix[vars[i]]?.[vars[j]]?.r ?? null;
+      if (r !== null && Math.abs(r) >= threshold) highPairs.push({ a: vars[i], b: vars[j], r });
+    }
+
+  return (
+    <div>
+      <div className="corr-scroll">
+        <table className="corr-table">
+          <thead>
+            <tr>
+              <th style={{ minWidth: 120 }} />
+              {vars.map((v) => (
+                <th key={v} style={excludedByCorr.includes(v) ? { opacity: 0.35 } : {}}>
+                  <span className="corr-colhead">{labels[v] ?? v}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {vars.map((row) => {
+              const rowExcluded = excludedByCorr.includes(row);
+              return (
+                <tr key={row}>
+                  <td className="corr-rowlabel" style={rowExcluded ? { opacity: 0.4, textDecoration: "line-through" } : {}}>
+                    {labels[row] ?? row}
+                  </td>
+                  {vars.map((col) => {
+                    const cell = matrix[row]?.[col];
+                    const isDiag = row === col;
+                    const r = cell?.r ?? null;
+                    const isHigh = !isDiag && r !== null && Math.abs(r) >= threshold;
+                    const isExcluded = rowExcluded || excludedByCorr.includes(col);
+                    return (
+                      <td
+                        key={col}
+                        className={`corr-cell${isDiag ? " corr-diag" : ""}${!isDiag && !isExcluded ? " corr-hoverable" : ""}${isHigh && !isExcluded ? " ml-corr-high" : ""}`}
+                        style={{ background: isDiag ? "#eef2f7" : corrColor(r), opacity: isExcluded ? 0.3 : 1, pointerEvents: isExcluded ? "none" : undefined }}
+                        onMouseEnter={isDiag || isExcluded ? undefined : (e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setHovered({ row, col, rectRight: rect.right, rectTop: rect.top });
+                        }}
+                        onMouseLeave={isDiag || isExcluded ? undefined : () => setHovered(null)}
+                        onClick={isDiag || isExcluded ? undefined : () => { setHovered(null); setModalCell({ row, col }); }}
+                      >
+                        {isDiag
+                          ? <span className="corr-diag-dot">—</span>
+                          : r !== null
+                            ? <><span className="corr-r">{r.toFixed(2)}</span><span className="corr-stars">{cell?.stars}</span></>
+                            : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="corr-legend" style={{ marginTop: 8 }}>
+        <span>* p&lt;0.05</span><span>** p&lt;0.01</span><span>*** p&lt;0.001</span>
+        <div className="corr-scale"><span>−1</span><div className="corr-scale-neg" /><span>0</span><div className="corr-scale-pos" /><span>+1</span></div>
+        <span className="ml-high-legend">⬛ |r| ≥ {threshold}</span>
+      </div>
+
+      {/* High pairs exclusion */}
+      {highPairs.length > 0 ? (
+        <div className="ml-corr-pairs-section">
+          <div className="ml-section-head" style={{ marginTop: 16, marginBottom: 8 }}>
+            Требуют внимания · {highPairs.length} пар(ы)
+          </div>
+          <div className="ml-corr-pairs">
+            {highPairs.map(({ a, b, r }) => {
+              const exclA = excludedByCorr.includes(a);
+              const exclB = excludedByCorr.includes(b);
+              return (
+                <div key={`${a}-${b}`} className={`ml-corr-pair${exclA || exclB ? " resolved" : ""}`}>
+                  <span className="ml-corr-r">|r| = {Math.abs(r).toFixed(2)}</span>
+                  <button className={`ml-corr-var${exclA ? " excluded" : ""}`} onClick={() => exclA ? onRestore(a) : onExclude(a)}>
+                    {labels[a] || a}
+                  </button>
+                  <span className="ml-corr-sep">↔</span>
+                  <button className={`ml-corr-var${exclB ? " excluded" : ""}`} onClick={() => exclB ? onRestore(b) : onExclude(b)}>
+                    {labels[b] || b}
+                  </button>
+                  <span className="ml-corr-hint">Нажмите переменную чтобы исключить / снова — восстановить</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="ml-corr-ok" style={{ marginTop: 12 }}>
+          Высококоррелирующих пар не обнаружено (порог |r| ≥ {threshold}).
+        </div>
+      )}
+
+      {excludedByCorr.length > 0 && (
+        <div className="ml-excluded-list" style={{ marginTop: 8 }}>
+          Исключено: {excludedByCorr.map((n) => labels[n] || n).join(", ")}
+          <button className="ml-link-btn" onClick={onRestoreAll}>Восстановить все</button>
+        </div>
+      )}
+
+      {hovered && (
+        <ScatterTooltip dataset={dataset} schema={schema} labels={labels} hovered={hovered} result={result} method={result.method} />
+      )}
+      {modalCell && (
+        <CorrelationModal
+          dataset={dataset} schema={schema} labels={labels}
+          cell={modalCell} result={result}
+          inReport={false} onToggleReport={() => {}}
+          onClose={() => setModalCell(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export function ModelingPage({ dataset, schema, workspace, setWorkspace }: ModelingPageProps) {
   const set = (patch: Partial<ModelingWorkspace>) =>
@@ -324,12 +471,20 @@ export function ModelingPage({ dataset, schema, workspace, setWorkspace }: Model
   const finalPredictors = workspace.candidatePredictors.filter((n) => !workspace.excludedByCorr.includes(n));
 
   function loadCorrelation() {
-    if (finalPredictors.length < 2) return;
+    if (workspace.candidatePredictors.length < 2) return;
     setCorrLoading(true);
     api.correlation(dataset.rows, workspace.candidatePredictors, {}, "auto")
       .then((res) => { setCorrResult(res); setCorrLoading(false); })
       .catch(() => setCorrLoading(false));
   }
+
+  // Auto-load correlations when entering step 2 (e.g. after page refresh)
+  useEffect(() => {
+    if (workspace.step === 2 && !corrResult && !corrLoading && workspace.candidatePredictors.length >= 2) {
+      loadCorrelation();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.step]);
 
   // ── Step 3: training ─────────────────────────────────────────────────────
   const [trainLoading, setTrainLoading] = useState(false);
@@ -454,59 +609,25 @@ export function ModelingPage({ dataset, schema, workspace, setWorkspace }: Model
         {workspace.step === 2 && (
           <div className="ml-step-body">
             <p className="ml-step-desc">
-              Проверьте высококоррелирующие пары (|r| ≥ {CORR_THRESHOLD}) и исключите одну переменную из каждой.
-              Если мультиколлинеарность не вызывает опасений — пропустите этот шаг.
+              Матрица корреляций для выбранных предикторов. Наведите на ячейку — увидите scatter plot.
+              Кликните — откроется подробный график. Ячейки с |r| ≥ {CORR_THRESHOLD} выделены — исключите одну переменную из каждой пары в списке ниже.
             </p>
 
             {corrLoading && <div className="ml-spinner-block">Расчёт корреляций…</div>}
 
-            {corrResult && !corrLoading && (() => {
-              const vars = workspace.candidatePredictors;
-              const highPairs: { a: string; b: string; r: number }[] = [];
-              for (let i = 0; i < vars.length; i++)
-                for (let j = i + 1; j < vars.length; j++) {
-                  const r = corrResult.matrix[vars[i]]?.[vars[j]]?.r ?? null;
-                  if (r !== null && Math.abs(r) >= CORR_THRESHOLD) highPairs.push({ a: vars[i], b: vars[j], r });
-                }
-
-              return (
-                <>
-                  {highPairs.length === 0
-                    ? <div className="ml-corr-ok">Высококоррелирующих пар не обнаружено (порог |r| ≥ {CORR_THRESHOLD}).</div>
-                    : (
-                      <div className="ml-corr-pairs">
-                        <div className="ml-section-head">Высококоррелирующие пары · {highPairs.length}</div>
-                        {highPairs.map(({ a, b, r }) => {
-                          const exclA = workspace.excludedByCorr.includes(a);
-                          const exclB = workspace.excludedByCorr.includes(b);
-                          return (
-                            <div key={`${a}-${b}`} className={`ml-corr-pair${exclA || exclB ? " resolved" : ""}`}>
-                              <span className="ml-corr-r">r = {r.toFixed(2)}</span>
-                              <button
-                                className={`ml-corr-var${exclA ? " excluded" : ""}`}
-                                onClick={() => set({ excludedByCorr: exclA ? workspace.excludedByCorr.filter((n) => n !== a) : [...workspace.excludedByCorr.filter((n) => n !== b), a] })}
-                              >{labels[a] || a}</button>
-                              <span className="ml-corr-sep">↔</span>
-                              <button
-                                className={`ml-corr-var${exclB ? " excluded" : ""}`}
-                                onClick={() => set({ excludedByCorr: exclB ? workspace.excludedByCorr.filter((n) => n !== b) : [...workspace.excludedByCorr.filter((n) => n !== a), b] })}
-                              >{labels[b] || b}</button>
-                              <span className="ml-corr-hint">Нажмите на переменную чтобы исключить</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                  {workspace.excludedByCorr.length > 0 && (
-                    <div className="ml-excluded-list">
-                      Исключено: {workspace.excludedByCorr.map((n) => labels[n] || n).join(", ")}
-                      <button className="ml-link-btn" onClick={() => set({ excludedByCorr: [] })}>Восстановить все</button>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
+            {corrResult && !corrLoading && (
+              <Step2Matrix
+                result={corrResult}
+                threshold={CORR_THRESHOLD}
+                excludedByCorr={workspace.excludedByCorr}
+                labels={labels}
+                dataset={dataset}
+                schema={schema}
+                onExclude={(n) => set({ excludedByCorr: [...workspace.excludedByCorr.filter((x) => x !== n), n] })}
+                onRestore={(n) => set({ excludedByCorr: workspace.excludedByCorr.filter((x) => x !== n) })}
+                onRestoreAll={() => set({ excludedByCorr: [] })}
+              />
+            )}
 
             <div className="ml-step-footer">
               <button className="button secondary" onClick={() => set({ step: 1 })}>← Назад</button>
