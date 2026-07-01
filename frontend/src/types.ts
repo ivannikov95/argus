@@ -1,5 +1,27 @@
 export type VariableType = "numeric" | "categorical" | "binary" | "text";
 
+export interface GroupSlot { label: string; rawValue: string; }
+
+export interface TableEditorSettings {
+  title: string;
+  description: string;
+  footnotes: string;
+  font: "times";
+  fontSize: 10 | 11 | 12;
+  alignment: "left" | "center" | "right";
+  decimals: number;
+  pFormat: "exact" | "threshold";
+  showEffect: boolean;
+  showOverall: boolean;
+  showCI: boolean;
+  showMissing: boolean;
+  decomposeCategories: boolean;
+  numericPresentation: "auto" | "mean_sd" | "median_iqr";
+  numericTest: "auto" | "parametric" | "nonparametric";
+  categoricalTest: "auto" | "chi_square" | "fisher";
+  confidenceLevel: 0.90 | 0.95 | 0.99;
+}
+
 export interface VariableSchema {
   name: string;
   label: string;
@@ -129,4 +151,36 @@ export interface LogisticTableRow {
   univariate: LogisticUniResult | null;
   univariateLoading: boolean;
   univariateError: string | null;
+}
+
+export interface TableSlide {
+  id: string;
+  group: string | null;
+  groupSlots: GroupSlot[];
+  selected: string[];
+  settings: TableEditorSettings;
+  analysis: TableOneAnalysis | null;
+}
+
+export interface LogisticTableWorkspace {
+  outcome: string;
+  rows: LogisticTableRow[];
+  multiResult: LogisticMultiResult | null;
+  multiLoading: boolean;
+}
+
+export interface CorrelationWorkspace {
+  variables: string[];
+  method: "auto" | "pearson" | "spearman";
+  result: CorrelationAnalysis | null;
+  includeMatrix: boolean;
+  reportPairs: { row: string; col: string }[];
+}
+
+export interface RegressionWorkspace {
+  outcome: string;
+  predictors: string[];
+  confidenceLevel: number;
+  cutoff: number;
+  result: RegressionAnalysis | null;
 }
