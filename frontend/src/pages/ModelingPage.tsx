@@ -310,7 +310,7 @@ function Step2Matrix({ result, threshold, excludedByCorr, labels, dataset, schem
     }
 
   return (
-    <div>
+    <div className="ml-corr-matrix-wrap">
       <div className="corr-scroll">
         <table className="corr-table">
           <thead>
