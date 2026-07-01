@@ -45,10 +45,15 @@ export function TablePage({
   const labels = Object.fromEntries(schema.map((item) => [item.name, item.label]));
   const available = schema.filter((v) => v.role !== "id" && v.type !== "text" && v.name !== group);
   const availableNames = new Set(available.map((v) => v.name));
-  const pickerVariables = [
-    ...pickerOrder.map((name) => available.find((v) => v.name === name)).filter((v): v is VariableSchema => Boolean(v)),
-    ...available.filter((v) => !pickerOrder.includes(v.name)),
+  // Selected vars float to top (in analysis order), unselected below
+  const selectedVars = selected
+    .map((name) => available.find((v) => v.name === name))
+    .filter((v): v is VariableSchema => Boolean(v));
+  const unselectedVars = [
+    ...pickerOrder.filter((name) => !selected.includes(name)).map((name) => available.find((v) => v.name === name)).filter((v): v is VariableSchema => Boolean(v)),
+    ...available.filter((v) => !selected.includes(v.name) && !pickerOrder.includes(v.name)),
   ];
+  const pickerVariables = [...selectedVars, ...unselectedVars];
   // Background p-value scan: all available variables whenever group changes
   useEffect(() => {
     if (!group) { setBgPValues(new Map()); return; }
@@ -252,14 +257,17 @@ export function TablePage({
           <div className="picker-scroll">
             {(() => {
               const hasGroups = !!group;
-              return pickerVariables.map((variable) => {
+              return pickerVariables.map((variable, idx) => {
                 const isSelected = selected.includes(variable.name);
+                const showDivider = idx === selectedVars.length && selectedVars.length > 0 && unselectedVars.length > 0;
                 const position = selected.indexOf(variable.name);
                 const hintClass = dropHint?.name === variable.name && dragged !== variable.name ? `drop-${dropHint.edge}` : "";
                 const pVal = hasGroups ? bgPValues.get(variable.name) : undefined;
                 const isSig = pVal !== undefined && pVal !== null && pVal < 0.05;
                 return (
-                  <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} key={variable.name} ref={(el) => { variableRefs.current[variable.name] = el; }}>
+                  <div key={variable.name}>
+                  {showDivider && <div className="picker-divider"><span>Не выбраны</span></div>}
+                  <div className={`variable-choice ${isSelected ? "selected" : ""} ${dragged === variable.name ? "dragging" : ""} ${hintClass}`} ref={(el) => { variableRefs.current[variable.name] = el; }}>
                     <button type="button" className="drag-handle" disabled={!isSelected} aria-label={`Перетащить ${variable.label}`} onPointerDown={(e) => startPointerDrag(e, variable.name)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={() => clearPointerDrag()}>⠿</button>
                     <label>
                       <input type="checkbox" checked={isSelected} onChange={() => toggleVariable(variable.name)} />
@@ -277,6 +285,7 @@ export function TablePage({
                       <button disabled={!isSelected || position === 0} onClick={() => moveVariable(variable.name, -1)} aria-label={`Поднять ${variable.label}`}>↑</button>
                       <button disabled={!isSelected || position === selected.length - 1} onClick={() => moveVariable(variable.name, 1)} aria-label={`Опустить ${variable.label}`}>↓</button>
                     </div>
+                  </div>
                   </div>
                 );
               });

@@ -837,3 +837,8 @@ textarea.editor-input.small { min-height: 42px; }
 .lgt-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 12px; flex-shrink: 0; }
 .lgt-header-left { display: flex; flex-direction: column; gap: 2px; }
 .lgt-header-title { font-size: 22px; font-weight: 700; color: #111827; margin: 0; letter-spacing: -.3px; }
+
+.picker-divider { display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px; }
+.picker-divider span { font-size: 10px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.picker-divider::before { content: ""; flex: 0 0 0; }
+.picker-divider::after { content: ""; flex: 1; height: 1px; background: #e5e7eb; }
