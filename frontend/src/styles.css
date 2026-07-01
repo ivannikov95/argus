@@ -990,8 +990,9 @@ textarea.editor-input.small { min-height: 42px; }
 .ml-high-legend { margin-left: auto; color: #d97706; font-weight: 600; font-size: 11px; display: flex; align-items: center; gap: 6px; }
 .ml-high-legend::before { content: ""; display: inline-block; width: 12px; height: 12px; border: 2.5px solid #f59e0b; border-radius: 2px; }
 .ml-corr-pairs-section { margin-top: 4px; }
-.ml-corr-matrix-wrap .corr-cell { height: 34px; width: 52px; }
-.ml-corr-matrix-wrap .corr-colhead { height: 56px; padding: 4px 6px; }
-.ml-corr-matrix-wrap .corr-r { font-size: 12px; }
-.ml-corr-matrix-wrap .corr-stars { font-size: 8px; min-height: 10px; }
-.ml-corr-matrix-wrap .corr-rowlabel { padding: 4px 8px; font-size: 11px; }
+.ml-corr-matrix-wrap .corr-cell { height: 30px !important; width: 50px; padding: 0 !important; line-height: 1; }
+.ml-corr-matrix-wrap .corr-colhead { height: 52px !important; padding: 4px 5px; }
+.ml-corr-matrix-wrap .corr-r { font-size: 11px; line-height: 1.2; }
+.ml-corr-matrix-wrap .corr-stars { font-size: 8px; min-height: 8px; line-height: 1; }
+.ml-corr-matrix-wrap .corr-rowlabel { padding: 0 8px !important; font-size: 11px; height: 30px !important; vertical-align: middle; }
+.ml-corr-matrix-wrap .corr-diag { height: 30px !important; }
