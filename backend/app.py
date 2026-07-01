@@ -818,6 +818,237 @@ def logistic_multivariate(request: LogisticTableRequest) -> dict[str, Any]:
     }
 
 
+class ModelingRequest(BaseModel):
+    rows: list[dict[str, Any]]
+    outcome: str
+    predictors: list[str] = Field(min_length=1)
+    variable_overrides: dict[str, dict[str, Any]] = {}
+    train_size: float = Field(default=0.8, gt=0.5, lt=1.0)
+    validation_size: float = Field(default=0.0, ge=0.0, lt=0.5)
+    random_seed: int = 42
+    tuning_method: str = "none"   # "none" | "grid" | "random"
+    cv_folds: int = Field(default=5, ge=2, le=20)
+    n_iter: int = Field(default=20, ge=5, le=100)
+    confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0)
+    cutoff: float = Field(default=0.5, gt=0.0, lt=1.0)
+
+
+def _split_metrics(y_true, y_prob, cutoff: float, confidence_level: float) -> dict[str, Any]:
+    from sklearn.metrics import roc_auc_score, roc_curve as sk_roc
+    import numpy as np
+
+    n = len(y_true)
+    auc = float(roc_auc_score(y_true, y_prob)) if len(set(y_true)) > 1 else 0.5
+    fpr_arr, tpr_arr, thr_arr = sk_roc(y_true, y_prob)
+    roc_points = [{"fpr": float(f), "tpr": float(t)} for f, t in zip(fpr_arr, tpr_arr)]
+
+    y_pred = (y_prob >= cutoff).astype(int)
+    tp = int(((y_true == 1) & (y_pred == 1)).sum())
+    tn = int(((y_true == 0) & (y_pred == 0)).sum())
+    fp = int(((y_true == 0) & (y_pred == 1)).sum())
+    fn = int(((y_true == 1) & (y_pred == 0)).sum())
+
+    def ratio(a: int, b: int) -> float:
+        return a / b if b else 0.0
+
+    sensitivity = ratio(tp, tp + fn)
+    specificity = ratio(tn, tn + fp)
+    ppv = ratio(tp, tp + fp)
+    npv = ratio(tn, tn + fn)
+    efficiency = ratio(tp + tn, n)
+
+    # 95% CI for AUC via DeLong's normal approximation
+    q1 = auc / (2 - auc)
+    q2 = 2 * auc ** 2 / (1 + auc)
+    n_pos = int(y_true.sum())
+    n_neg = n - n_pos
+    var_auc = (auc * (1 - auc) + (n_pos - 1) * (q1 - auc ** 2) + (n_neg - 1) * (q2 - auc ** 2)) / (n_pos * n_neg)
+    z = stats.norm.ppf(1 - (1 - confidence_level) / 2)
+    auc_lo = max(0.0, auc - z * math.sqrt(max(var_auc, 0)))
+    auc_hi = min(1.0, auc + z * math.sqrt(max(var_auc, 0)))
+
+    return {
+        "n": n,
+        "n_events": int(y_true.sum()),
+        "auc": auc,
+        "auc_ci_lower": auc_lo,
+        "auc_ci_upper": auc_hi,
+        "sensitivity": sensitivity,
+        "specificity": specificity,
+        "ppv": ppv,
+        "npv": npv,
+        "efficiency": efficiency,
+        "tp": tp, "tn": tn, "fp": fp, "fn": fn,
+        "roc_curve": roc_points,
+    }
+
+
+@app.post("/api/analyze/modeling")
+def analyze_modeling(request: ModelingRequest) -> dict[str, Any]:
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
+    import numpy as np
+
+    # ── prepare dataframe ────────────────────────────────────────────────────
+    df = to_frame(request.rows)
+    all_cols = [request.outcome, *request.predictors]
+    df = df[[c for c in all_cols if c in df.columns]].copy()
+
+    # apply variable overrides (type coercion)
+    for col, ov in request.variable_overrides.items():
+        if col not in df.columns:
+            continue
+        typ = ov.get("type", "")
+        if typ == "numeric":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        elif typ in ("binary", "categorical"):
+            df[col] = df[col].astype(str)
+
+    df = df.dropna()
+    if len(df) < 20:
+        raise HTTPException(422, "Слишком мало наблюдений после удаления пропусков.")
+
+    # encode outcome
+    outcome_vals = sorted(df[request.outcome].astype(str).unique())
+    if len(outcome_vals) != 2:
+        raise HTTPException(422, f"Исход должен быть бинарным (найдено {len(outcome_vals)} уровня).")
+    event_level = outcome_vals[1]  # higher value = event (e.g. "1")
+    y_all = (df[request.outcome].astype(str) == event_level).astype(int).to_numpy()
+
+    # encode predictors (dummy-encode categoricals)
+    X_raw = df[request.predictors]
+    num_cols = X_raw.select_dtypes(include="number").columns.tolist()
+    cat_cols = [c for c in request.predictors if c not in num_cols]
+    X_enc = pd.get_dummies(X_raw, columns=cat_cols, drop_first=True)
+    feature_names = X_enc.columns.tolist()
+    X_all = X_enc.to_numpy(dtype=float)
+
+    warnings: list[str] = []
+    if len(feature_names) > len(df) // 10:
+        warnings.append("Много предикторов относительно объёма выборки — риск переобучения.")
+
+    # ── train / test / validation split ─────────────────────────────────────
+    val_size = request.validation_size
+    test_size = round(1.0 - request.train_size - val_size, 10)
+    if test_size <= 0:
+        raise HTTPException(422, "Сумма train + validation не должна превышать 1.")
+
+    if val_size > 0:
+        X_tv, X_val, y_tv, y_val = train_test_split(
+            X_all, y_all, test_size=val_size, random_state=request.random_seed, stratify=y_all
+        )
+    else:
+        X_tv, y_tv = X_all, y_all
+        X_val, y_val = None, None
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_tv, y_tv,
+        test_size=round(test_size / (request.train_size + test_size), 10),
+        random_state=request.random_seed,
+        stratify=y_tv,
+    )
+
+    # ── hyperparameter tuning ────────────────────────────────────────────────
+    pipe = Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(max_iter=1000, random_state=request.random_seed)),
+    ])
+    best_params: dict[str, Any] | None = None
+
+    if request.tuning_method in ("grid", "random"):
+        param_grid = {
+            "clf__C": [0.001, 0.01, 0.1, 1, 10, 100],
+            "clf__penalty": ["l1", "l2"],
+            "clf__solver": ["liblinear"],
+        }
+        scorer = "roc_auc"
+        cv = min(request.cv_folds, int(min(y_train.sum(), (1 - y_train).sum())))
+        cv = max(cv, 2)
+        if request.tuning_method == "grid":
+            search = GridSearchCV(pipe, param_grid, scoring=scorer, cv=cv, n_jobs=-1)
+        else:
+            search = RandomizedSearchCV(pipe, param_grid, n_iter=min(request.n_iter, 12),
+                                        scoring=scorer, cv=cv, random_state=request.random_seed, n_jobs=-1)
+        search.fit(X_train, y_train)
+        pipe = search.best_estimator_
+        best_params = {k.replace("clf__", ""): v for k, v in search.best_params_.items()}
+    else:
+        pipe.fit(X_train, y_train)
+
+    # ── compute metrics per split ────────────────────────────────────────────
+    cutoff = request.cutoff
+    train_prob = pipe.predict_proba(X_train)[:, 1]
+    test_prob  = pipe.predict_proba(X_test)[:, 1]
+
+    train_metrics = _split_metrics(y_train, train_prob, cutoff, request.confidence_level)
+    test_metrics  = _split_metrics(y_test,  test_prob,  cutoff, request.confidence_level)
+    val_metrics: dict[str, Any] | None = None
+    if X_val is not None:
+        val_prob = pipe.predict_proba(X_val)[:, 1]
+        val_metrics = _split_metrics(y_val, val_prob, cutoff, request.confidence_level)
+
+    # ── extract coefficients + CIs (from the scaled model) ──────────────────
+    clf = pipe.named_steps["clf"]
+    scaler = pipe.named_steps["scaler"]
+    coefs_raw = clf.coef_[0]
+    intercept = float(clf.intercept_[0])
+
+    # Bootstrap CIs for OR
+    n_boot = 200
+    boot_coefs = np.zeros((n_boot, len(feature_names)))
+    rng = np.random.default_rng(request.random_seed)
+    for b in range(n_boot):
+        idx = rng.integers(0, len(X_train), size=len(X_train))
+        try:
+            boot_clf = LogisticRegression(
+                C=clf.C, penalty=clf.penalty, solver=clf.solver,
+                max_iter=500, random_state=request.random_seed
+            )
+            boot_scaler = StandardScaler()
+            Xb = boot_scaler.fit_transform(X_train[idx])
+            boot_clf.fit(Xb, y_train[idx])
+            boot_coefs[b] = boot_clf.coef_[0]
+        except Exception:
+            boot_coefs[b] = coefs_raw
+
+    alpha = 1 - request.confidence_level
+    coefficients = []
+    for i, name in enumerate(feature_names):
+        coef = float(coefs_raw[i])
+        or_val = math.exp(coef)
+        boot_or = np.exp(boot_coefs[:, i])
+        ci_lo = float(np.percentile(boot_or, 100 * alpha / 2))
+        ci_hi = float(np.percentile(boot_or, 100 * (1 - alpha / 2)))
+        p_approx = float(2 * stats.norm.sf(abs(coef / (boot_coefs[:, i].std() + 1e-12))))
+        coefficients.append({
+            "term": name,
+            "coef": coef,
+            "or": or_val,
+            "ci_lower": ci_lo,
+            "ci_upper": ci_hi,
+            "p_value": p_approx,
+            "p_display": p_text(p_approx),
+        })
+
+    return {
+        "n_total": len(X_all),
+        "n_train": len(X_train),
+        "n_test":  len(X_test),
+        "n_validation": len(X_val) if X_val is not None else None,
+        "event_level": event_level,
+        "train": train_metrics,
+        "test":  test_metrics,
+        "validation": val_metrics,
+        "best_params": best_params,
+        "tuning_method": request.tuning_method,
+        "cv_folds": request.cv_folds,
+        "coefficients": coefficients,
+        "warnings": warnings,
+    }
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": app.version}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "./api";
 import type { ExportOptions, ProjectMeta } from "./api";
-import type { AnalysisRow, Dataset, VariableSchema, TableSlide, TableEditorSettings, GroupSlot, LogisticTableWorkspace, RegressionWorkspace, CorrelationWorkspace } from "./types";
+import type { AnalysisRow, Dataset, VariableSchema, TableSlide, TableEditorSettings, GroupSlot, LogisticTableWorkspace, RegressionWorkspace, CorrelationWorkspace, ModelingWorkspace } from "./types";
 import { clearWorkspaceDraft, loadWorkspaceDraft, saveWorkspaceDraft } from "./draftStore";
 import { DEFAULT_SETTINGS, download, formatTableCaption, makeSlide, slidesForDataset, regressionForDataset } from "./utils";
 import { HomePage } from "./pages/HomePage";
@@ -10,6 +10,7 @@ import { DatasetPage } from "./pages/DatasetPage";
 import { VariablesPage } from "./pages/VariablesPage";
 import { TablePage } from "./pages/TablePage";
 import { LogisticTablePage } from "./pages/LogisticPage";
+import { ModelingPage } from "./pages/ModelingPage";
 import { RegressionPage } from "./pages/RegressionPage";
 import { CorrelationPage } from "./pages/CorrelationPage";
 import { ReportPreviewPage } from "./pages/ReportPage";
@@ -67,6 +68,11 @@ function App() {
   const [slides, setSlides] = useState<TableSlide[]>([makeSlide({ id: "s1" })]);
   const [regression, setRegression] = useState<RegressionWorkspace>({ outcome: "", predictors: [], confidenceLevel: 0.95, cutoff: 0.5, result: null });
   const [logisticTable, setLogisticTable] = useState<LogisticTableWorkspace>({ outcome: "", rows: [], multiResult: null, multiLoading: false });
+  const [modeling, setModeling] = useState<ModelingWorkspace>({
+    step: 1, outcome: "", candidatePredictors: [], step1PValues: {},
+    excludedByCorr: [], trainSize: 0.8, validationSize: 0, randomSeed: 42,
+    tuningMethod: "none", cvFolds: 5, nIter: 20, cutoff: 0.5, result: null,
+  });
   const [correlation, setCorrelation] = useState<CorrelationWorkspace>({ variables: [], method: "auto", result: null, includeMatrix: false, reportPairs: [] });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [projectName, setProjectName] = useState("Новое исследование");
@@ -619,7 +625,7 @@ function App() {
             <LogisticTablePage dataset={dataset} schema={schema} workspace={logisticTable} setWorkspace={setLogisticTable} />
           )}
           {page === "modeling" && dataset && (
-            <RegressionPage dataset={dataset} schema={schema} workspace={regression} setWorkspace={setRegression} onOpenReport={() => setPage("report")} />
+            <ModelingPage dataset={dataset} schema={schema} workspace={modeling} setWorkspace={setModeling} />
           )}
           {page === "correlation" && dataset && (
             <CorrelationPage dataset={dataset} schema={schema} workspace={correlation} setWorkspace={setCorrelation} />

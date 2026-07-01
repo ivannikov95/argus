@@ -1,4 +1,4 @@
-import type { CorrelationAnalysis, Dataset, LogisticMultiResult, LogisticUniResult, RegressionAnalysis, TableOneAnalysis } from "./types";
+import type { CorrelationAnalysis, Dataset, LogisticMultiResult, LogisticUniResult, ModelingResult, RegressionAnalysis, TableOneAnalysis } from "./types";
 
 export interface ProjectMeta {
   project_id: string;
@@ -183,6 +183,41 @@ export const api = {
       signal,
       body: JSON.stringify({ rows, outcome, predictors, variable_overrides: variableOverrides, confidence_level: confidenceLevel }),
     }).then(parse<LogisticMultiResult>),
+
+  modeling: (
+    rows: Record<string, unknown>[],
+    outcome: string,
+    predictors: string[],
+    options: {
+      variableOverrides?: Record<string, unknown>;
+      trainSize?: number;
+      validationSize?: number;
+      randomSeed?: number;
+      tuningMethod?: string;
+      cvFolds?: number;
+      nIter?: number;
+      cutoff?: number;
+      confidenceLevel?: number;
+    } = {},
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/analyze/modeling", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+        rows, outcome, predictors,
+        variable_overrides: options.variableOverrides ?? {},
+        train_size: options.trainSize ?? 0.8,
+        validation_size: options.validationSize ?? 0,
+        random_seed: options.randomSeed ?? 42,
+        tuning_method: options.tuningMethod ?? "none",
+        cv_folds: options.cvFolds ?? 5,
+        n_iter: options.nIter ?? 20,
+        cutoff: options.cutoff ?? 0.5,
+        confidence_level: options.confidenceLevel ?? 0.95,
+      }),
+    }).then(parse<ModelingResult>),
 
   saveProject: (payload: Record<string, unknown>) =>
     fetch("/api/project/save", {

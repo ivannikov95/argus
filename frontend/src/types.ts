@@ -184,3 +184,64 @@ export interface RegressionWorkspace {
   cutoff: number;
   result: RegressionAnalysis | null;
 }
+
+// ── Modeling (ML pipeline) ────────────────────────────────────────────────
+export interface ModelingSplitMetrics {
+  n: number;
+  n_events: number;
+  auc: number;
+  auc_ci_lower: number;
+  auc_ci_upper: number;
+  sensitivity: number;
+  specificity: number;
+  ppv: number;
+  npv: number;
+  efficiency: number;
+  tp: number; tn: number; fp: number; fn: number;
+  roc_curve: { fpr: number; tpr: number }[];
+}
+
+export interface ModelingCoefficient {
+  term: string;
+  coef: number;
+  or: number;
+  ci_lower: number;
+  ci_upper: number;
+  p_value: number;
+  p_display: string;
+}
+
+export interface ModelingResult {
+  n_total: number;
+  n_train: number;
+  n_test: number;
+  n_validation: number | null;
+  event_level: string;
+  train: ModelingSplitMetrics;
+  test: ModelingSplitMetrics;
+  validation: ModelingSplitMetrics | null;
+  best_params: Record<string, unknown> | null;
+  tuning_method: string;
+  cv_folds: number;
+  coefficients: ModelingCoefficient[];
+  warnings: string[];
+}
+
+export interface ModelingWorkspace {
+  step: 1 | 2 | 3;
+  outcome: string;
+  // step 1
+  candidatePredictors: string[];
+  step1PValues: Record<string, number | null>;
+  // step 2
+  excludedByCorr: string[];
+  // step 3
+  trainSize: number;
+  validationSize: number;
+  randomSeed: number;
+  tuningMethod: "none" | "grid" | "random";
+  cvFolds: number;
+  nIter: number;
+  cutoff: number;
+  result: ModelingResult | null;
+}
